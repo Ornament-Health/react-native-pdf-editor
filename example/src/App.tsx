@@ -15,6 +15,7 @@ export default function App() {
     viewBackgroundColor: '#40a35f',
     lineColor: '#4287f5',
     lineWidth: 40,
+    startWithEdit: true,
   };
 
   const handleSavePDF = (e: string | null) => {

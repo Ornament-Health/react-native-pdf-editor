@@ -26,10 +26,11 @@ interface RNComponentProps {
   style: ViewStyle;
   options: {
     fileName: string;
-    isToolBarHidden: boolean;
-    viewBackgroundColor: string;
-    lineColor: string;
-    lineWidth: Float;
+    isToolBarHidden?: boolean;
+    viewBackgroundColor?: string;
+    lineColor?: string;
+    lineWidth?: Float;
+    startWithEdit?: boolean;
   };
   onSavePDF?(url: string | null): void;
 }
