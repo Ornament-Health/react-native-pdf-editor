@@ -6,6 +6,8 @@ React Native PDF editor (iOS)
 
 ```sh
 npm install @ornament-health/react-native-pdf-editor
+cd ios
+pod install
 ```
 
 ## Usage
@@ -21,7 +23,8 @@ const options = {
   isToolBarHidden: false,
   viewBackgroundColor: '#40a35f',
   lineColor: '#4287f5',
-  lineWidth: 40
+  lineWidth: 40,
+  startWithEdit: true,
 };
 
 <PDFEditorView 

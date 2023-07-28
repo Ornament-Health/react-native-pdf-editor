@@ -28,7 +28,6 @@ class ContainerView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupView()
-        addCustomGestures()
     }
 
     required init?(coder: NSCoder) {
@@ -84,6 +83,14 @@ class ContainerView: UIView {
             toolBarView.isHidden = isHidden
         } else {
             print("RNPDFEditor: \"isToolBarHidden\" value is wrong")
+        }
+
+        if let startWithEdit = options["startWithEdit"] as? Bool {
+            if (startWithEdit) {
+                addCustomGestures()
+            }
+        } else {
+            print("RNPDFEditor: \"startWithEdit\" value is wrong")
         }
 
         if let pdfViewBackgroundColor = options["viewBackgroundColor"] as? String {
