@@ -47,6 +47,18 @@ class RNPDFEditorViewManager: RCTViewManager {
       }
     }
 
+    @objc func clearAction(_ node:NSNumber) {
+      DispatchQueue.main.async {
+          guard let component = self.bridge.uiManager.view(
+              forReactTag: node
+          ) as? ContainerView else {
+              print("RNPDFEditor: Cannot find Native UIView with tag", node)
+              return
+          }
+          component.clearButtonTapped()
+      }
+    }
+
     @objc func saveAction(_ node:NSNumber) {
       DispatchQueue.main.async {
           guard let component = self.bridge.uiManager.view(
