@@ -38,6 +38,10 @@ export default function App() {
     pdfRef.current?.undoAction();
   };
 
+  const onPressClear = () => {
+    pdfRef.current?.clearAction();
+  };
+
   const onPressSave = () => {
     pdfRef.current?.saveAction();
   };
@@ -58,6 +62,11 @@ export default function App() {
         <View style={styles.buttonContainer}>
           <TouchableOpacity style={styles.button} onPress={onPressUndo}>
             <Text style={styles.buttonText}>Undo</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity style={styles.button} onPress={onPressClear}>
+            <Text style={styles.buttonText}>Clear</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.buttonContainer}>
