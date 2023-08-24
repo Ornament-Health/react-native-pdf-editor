@@ -220,6 +220,11 @@ extension ContainerView: ToolBarViewDelegate {
         pdfDrawer.undo()
     }
 
+    func clearButtonTapped() {
+        removeCustomGestures()
+        pdfDrawer.clear()
+    }
+
     func saveButtonTapped() {
         removeCustomGestures()
         self.savePDF()
