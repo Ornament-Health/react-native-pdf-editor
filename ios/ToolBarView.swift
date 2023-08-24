@@ -11,6 +11,7 @@ protocol ToolBarViewDelegate: AnyObject {
     func moveButtonTapped()
     func lineButtonTapped()
     func undoButtonTapped()
+    func clearButtonTapped()
     func saveButtonTapped()
 }
 
@@ -45,12 +46,17 @@ class ToolBarView: UIView {
         undoButton.setTitle("Undo", for: .normal)
         undoButton.addTarget(self, action: #selector(undoButtonTapped), for: .touchUpInside)
 
+        let clearButton = UIButton(type: .system)
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+        clearButton.setTitle("Clear", for: .normal)
+        clearButton.addTarget(self, action: #selector(clearButtonTapped), for: .touchUpInside)
+
         let saveButton = UIButton(type: .system)
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.setTitle("Save", for: .normal)
         saveButton.addTarget(self, action: #selector(saveButtonTapped), for: .touchUpInside)
 
-        let stackView = UIStackView(arrangedSubviews: [moveButton, lineButton, undoButton, saveButton])
+        let stackView = UIStackView(arrangedSubviews: [moveButton, lineButton, undoButton, clearButton, saveButton])
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
         stackView.spacing = 8
@@ -77,6 +83,10 @@ class ToolBarView: UIView {
 
     @objc func undoButtonTapped() {
         delegate?.undoButtonTapped()
+    }
+
+    @objc func clearButtonTapped() {
+        delegate?.clearButtonTapped()
     }
 
     @objc func saveButtonTapped() {

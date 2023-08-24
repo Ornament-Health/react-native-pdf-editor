@@ -14,6 +14,8 @@ RCT_EXTERN_METHOD(drawAction:(nonnull NSNumber *)node)
 
 RCT_EXTERN_METHOD(undoAction:(nonnull NSNumber *)node)
 
+RCT_EXTERN_METHOD(clearAction:(nonnull NSNumber *)node)
+
 RCT_EXTERN_METHOD(saveAction:(nonnull NSNumber *)node)
 
 @end

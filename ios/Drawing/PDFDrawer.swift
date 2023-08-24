@@ -29,6 +29,14 @@ class PDFDrawer {
             allAnnotations.removeLast()
         }
     }
+
+    func clear() {
+        for index in allAnnotations.indices {
+            let annotation = allAnnotations[index]
+            annotation.page?.removeAnnotation(annotation)
+        }
+        allAnnotations = []
+    }
 }
 
 extension PDFDrawer: DrawingGestureRecognizerDelegate {

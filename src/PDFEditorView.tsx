@@ -19,6 +19,7 @@ interface ExtRef {
   scrollAction(): void;
   drawAction(): void;
   undoAction(): void;
+  clearAction(): void;
   saveAction(): void;
 }
 
@@ -51,6 +52,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       scrollAction,
       drawAction,
       undoAction,
+      clearAction,
       saveAction,
     }));
     const componentRef = useRef<PDFEVRef>(null);
@@ -94,6 +96,19 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       }
     };
 
+    const clearAction = () => {
+      if (componentRef && componentRef.current) {
+        UIManager.dispatchViewManagerCommand(
+          findNodeHandle(componentRef.current),
+          Platform.OS === 'ios'
+            ? (UIManager.getViewManagerConfig(ComponentName).Commands
+                .clearAction as number)
+            : 'clearAction',
+          undefined
+        );
+      }
+    };
+
     const saveAction = () => {
       if (componentRef && componentRef.current) {
         UIManager.dispatchViewManagerCommand(
@@ -120,6 +135,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
         scrollAction={scrollAction}
         drawAction={drawAction}
         undoAction={undoAction}
+        clearAction={clearAction}
         saveAction={saveAction}
         onSavePDF={(event: SyntheticEvent) =>
           onSavePDF && onSavePDF(getURLString(event.nativeEvent))

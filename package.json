@@ -1,6 +1,6 @@
 {
   "name": "@ornament-health/react-native-pdf-editor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Ornament React Native PDF editor",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
@@ -89,7 +89,7 @@
       "<rootDir>/example/node_modules",
       "<rootDir>/lib/"
     ]
-  },  
+  },
   "release-it": {
     "git": {
       "commitMessage": "chore: release ${version}",
