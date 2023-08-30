@@ -1,6 +1,6 @@
 import React, { ComponentRef, useRef } from 'react';
 import RNFS from 'react-native-fs';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import { PDFEditorView } from '@ornament-health/react-native-pdf-editor';
 
 type PDFEVRef = ComponentRef<typeof PDFEditorView>;
@@ -8,7 +8,7 @@ type PDFEVRef = ComponentRef<typeof PDFEditorView>;
 export default function App() {
   const pdfRef = useRef<PDFEVRef>(null);
 
-  const source = 'file://' + RNFS.MainBundlePath + '/book.pdf';
+  const source = 'file://' + Platform.OS === 'ios' ? RNFS.MainBundlePath : RNFS.DocumentDirectoryPath + '/book.pdf';
   const options = {
     fileName: source,
     isToolBarHidden: false,
