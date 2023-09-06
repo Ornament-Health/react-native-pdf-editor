@@ -3,19 +3,41 @@ package com.ornament.pdfeditor
 import android.content.Context
 import android.graphics.drawable.ColorDrawable
 import android.util.Log
-import androidx.appcompat.widget.AppCompatTextView
+import android.view.LayoutInflater
+import android.view.MotionEvent
+import androidx.constraintlayout.widget.ConstraintLayout
+import com.ornament.pdfeditor.databinding.ViewPdfEditorBinding
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import java.io.File
 
-class PDFEditorView(context: Context) : AppCompatTextView(context) {
+class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
-    private lateinit var options: PDFEditorOptions
-    fun setOptions(options: PDFEditorOptions) {
-        this.options = options
-        background = ColorDrawable(options.backgroundColor)
-        text = text.toString() + options.toString()
+    companion object {
+        private const val ACTION_TAG = "ACTION"
 
     }
 
-    private var onSavePDFAction : (filePath: String?) -> Unit = {}
+    private val binding: ViewPdfEditorBinding
+
+    private lateinit var options: PDFEditorOptions
+    private lateinit var pageAdapter: PDFPageAdapter
+
+    init {
+        PDFBoxResourceLoader.init(context)
+        binding = ViewPdfEditorBinding.inflate(LayoutInflater.from(context), this, true)
+    }
+
+    fun setOptions(options: PDFEditorOptions) {
+        this.options = options
+        background = ColorDrawable(options.backgroundColor)
+        options.fileName?.let {
+            loadPDF(it)
+        }
+        binding.textViewInfrotmation.text = options.toString()
+    }
+
+    private var onSavePDFAction: (filePath: String?) -> Unit = {}
 
     fun onSavePDF(action: (filePath: String?) -> Unit) {
         onSavePDFAction = action
@@ -42,15 +64,14 @@ class PDFEditorView(context: Context) : AppCompatTextView(context) {
         Log.i(ACTION_TAG, "REDO")
     }
 
-
-    init {
-        setOnClickListener {
-            savePDF()
+    private fun loadPDF(filePath: String) {
+        val document = PDDocument.load(File(filePath))
+        binding.recyclerViewPages.apply {
+            pageAdapter = PDFPageAdapter(document)
+            adapter = pageAdapter
+            setListener(pageAdapter)
         }
     }
-
-    companion object {
-        private const val ACTION_TAG = "ACTION"
-    }
+    override fun onInterceptTouchEvent(ev: MotionEvent?) = false
 
 }

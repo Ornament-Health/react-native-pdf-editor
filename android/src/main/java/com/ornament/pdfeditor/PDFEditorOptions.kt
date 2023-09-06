@@ -11,12 +11,12 @@ class PDFEditorOptions(options: ReadableMap) {
     val lineWidth = options.getDouble("lineWidth")
     val startWithEdit = options.getBoolean("startWithEdit")
 
-    override fun toString() =
-        "fileName: " + fileName + "\n" +
-                "isToolBarHidden: " + isToolBarHidden + "\n" +
-                "backgroundColor: " + backgroundColor + "\n" +
-                "lineColor: " + lineColor + "\n" +
-                "lineWidth: " + lineWidth + "\n" +
-                "startWithEdit: " + startWithEdit
+    override fun toString() = "Options:\n" +
+            "fileName: " + fileName + "\n" +
+            "isToolBarHidden: " + isToolBarHidden + "\n" +
+            "backgroundColor: " + backgroundColor + "\n" +
+            "lineColor: " + lineColor + "\n" +
+            "lineWidth: " + lineWidth + "\n" +
+            "startWithEdit: " + startWithEdit
 
 }

@@ -8,7 +8,7 @@ type PDFEVRef = ComponentRef<typeof PDFEditorView>;
 export default function App() {
   const pdfRef = useRef<PDFEVRef>(null);
 
-  const source = 'file://' + Platform.OS === 'ios' ? RNFS.MainBundlePath : RNFS.DocumentDirectoryPath + '/book.pdf';
+  const source = 'file://' + Platform.OS === 'ios' ? RNFS.MainBundlePath : RNFS.ExternalDirectoryPath + '/book.pdf';
   const options = {
     fileName: source,
     isToolBarHidden: false,
