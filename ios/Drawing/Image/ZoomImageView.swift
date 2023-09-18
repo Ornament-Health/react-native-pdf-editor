@@ -68,7 +68,6 @@ class ImageDrawer {
     var color = UIColor.red // default color is red
     var width: CGFloat = 5 // default width
     var alpha: CGFloat = 0.3 // default alpha
-    var drawingTool = DrawingTool.pen
 
     func undo() {
 

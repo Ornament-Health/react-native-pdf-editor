@@ -159,7 +159,6 @@ class ContainerView: UIView {
             self.pdfView.document = document
             self.pdfView.disableSelection(in: self.pdfView)
 
-            self.pdfDrawer.drawingTool = .pen
             self.pdfDrawer.pdfView = pdfView
         } else {
             print("RNPDFEditor: can't create PDF document from URL")
