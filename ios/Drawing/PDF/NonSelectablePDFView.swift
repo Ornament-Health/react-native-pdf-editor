@@ -20,4 +20,11 @@ class NonSelectablePDFView: PDFView {
 
         super.addGestureRecognizer(gestureRecognizer)
     }
+
+//    override func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+//
+//            return true
+//        }
+
 }
+

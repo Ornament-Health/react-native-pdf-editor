@@ -40,6 +40,7 @@ class PDFDrawer {
 }
 
 extension PDFDrawer: DrawingGestureRecognizerDelegate {
+
     func gestureRecognizerBegan(_ location: CGPoint) {
         guard let page = pdfView.page(for: location, nearest: true) else { return }
         currentPage = page
