@@ -10,7 +10,14 @@ import UIKit
 @objc(ContainerView)
 class ContainerView: UIView {
 
+    enum CanvasType: String {
+        case pdf
+        case image
+    }
+
     @objc var pdfView: NonSelectablePDFView!
+
+    @objc var imageView: ZoomImageView!
 
     @objc var options: [String: Any] = [:] {
         didSet {
@@ -24,6 +31,7 @@ class ContainerView: UIView {
     private var toolBarView: ToolBarView!
     private let pdfDrawer = PDFDrawer()
     private var fileName = ""
+    private var canvasType: CanvasType = .pdf
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -48,8 +56,14 @@ class ContainerView: UIView {
         pdfView.usePageViewController(false)
         pdfView.pageBreakMargins = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         pdfView.autoScales = true
+        pdfView.isHidden = true
 
-        let stackView = UIStackView(arrangedSubviews: [toolBarView, pdfView])
+        let imageView = ZoomImageView()
+        imageView.backgroundColor = .lightGray
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.isHidden = true
+
+        let stackView = UIStackView(arrangedSubviews: [toolBarView, pdfView, imageView])
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .vertical
         stackView.spacing = 0
@@ -67,14 +81,30 @@ class ContainerView: UIView {
         ])
 
         self.pdfView = pdfView
+        self.imageView = imageView
         self.toolBarView = toolBarView
     }
 
     private func updateWithOptions(_ options: [String: Any]) {
 
+        if let canvasType = options["canvasType"] as? String {
+            if canvasType == CanvasType.pdf.rawValue {
+                self.canvasType = .pdf
+            } else if canvasType == CanvasType.image.rawValue {
+                self.canvasType = .image
+            }
+        } else {
+            print("RNPDFEditor: \"fileName\" value is wrong")
+        }
+
         if let fileName = options["fileName"] as? String {
             self.fileName = fileName
-            loadPDF(for: fileName)
+            switch canvasType {
+            case .image:
+                loadImage(for: fileName)
+            case .pdf:
+                loadPDF(for: fileName)
+            }
         } else {
             print("RNPDFEditor: \"fileName\" value is wrong")
         }
@@ -85,13 +115,13 @@ class ContainerView: UIView {
             print("RNPDFEditor: \"isToolBarHidden\" value is wrong")
         }
 
-        if let startWithEdit = options["startWithEdit"] as? Bool {
-            if (startWithEdit) {
-                addCustomGestures()
-            }
-        } else {
-            print("RNPDFEditor: \"startWithEdit\" value is wrong")
-        }
+//        if let startWithEdit = options["startWithEdit"] as? Bool {
+//            if (startWithEdit) {
+//                addCustomGestures()
+//            }
+//        } else {
+//            print("RNPDFEditor: \"startWithEdit\" value is wrong")
+//        }
 
         if let pdfViewBackgroundColor = options["viewBackgroundColor"] as? String {
             pdfView.backgroundColor  = UIColor(hexString: pdfViewBackgroundColor)
@@ -113,22 +143,9 @@ class ContainerView: UIView {
 
     }
 
-    private func addCustomGestures() {
-        removeCustomGestures()
-        let pdfDrawingGestureRecognizer = DrawingGestureRecognizer()
-        pdfView.addGestureRecognizer(pdfDrawingGestureRecognizer)
-        pdfDrawingGestureRecognizer.drawingDelegate = pdfDrawer
-        pdfDrawer.pdfView = pdfView
-    }
+    private func configurePDFView() {
 
-    private func removeCustomGestures() {
-        if let gestureRecognizers = pdfView.gestureRecognizers, !gestureRecognizers.isEmpty {
-            gestureRecognizers.forEach { item in
-                if item is DrawingGestureRecognizer {
-                    pdfView.removeGestureRecognizer(item)
-                }
-            }
-        }
+
     }
 
     private func loadPDF(for pathString: String) {
@@ -137,9 +154,25 @@ class ContainerView: UIView {
             return
         }
         if let document = PDFDocument(url: url) {
-            pdfView.document = document
+            self.pdfView.isHidden = false
+            self.pdfView.drawingDelegate = pdfDrawer
+            self.pdfView.document = document
+            self.pdfView.disableSelection(in: self.pdfView)
+
+            self.pdfDrawer.drawingTool = .pen
+            self.pdfDrawer.pdfView = pdfView
         } else {
             print("RNPDFEditor: can't create PDF document from URL")
+        }
+    }
+
+    private func loadImage(for pathString: String) {
+        let url = URL(fileURLWithPath: pathString)
+        if let imageData = try? Data(contentsOf: url), let image = UIImage(data: imageData) {
+            self.imageView.isHidden = false
+            self.imageView.setImage(image)
+        } else {
+            print("RNPDFEditor: can't create Image from URL")
         }
     }
 
@@ -206,27 +239,15 @@ class ContainerView: UIView {
 
 extension ContainerView: ToolBarViewDelegate {
 
-    @objc func moveButtonTapped() {
-        removeCustomGestures()
-    }
-
-    func lineButtonTapped() {
-        pdfDrawer.drawingTool = .pen
-        addCustomGestures()
-    }
-
     func undoButtonTapped() {
-        removeCustomGestures()
         pdfDrawer.undo()
     }
 
     func clearButtonTapped() {
-        removeCustomGestures()
         pdfDrawer.clear()
     }
 
     func saveButtonTapped() {
-        removeCustomGestures()
         self.savePDF()
     }
 }
