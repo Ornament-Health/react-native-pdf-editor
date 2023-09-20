@@ -109,7 +109,7 @@ class ContainerView: UIView {
 
 //        if let startWithEdit = options["startWithEdit"] as? Bool {
 //            if (startWithEdit) {
-//                addCustomGestures()
+//                
 //            }
 //        } else {
 //            print("RNPDFEditor: \"startWithEdit\" value is wrong")
