@@ -17,8 +17,6 @@ class ContainerView: UIView {
 
     @objc var pdfView: NonSelectablePDFView!
 
-    @objc var imageView: ZoomImageView!
-
     @objc var options: [String: Any] = [:] {
         didSet {
             updateWithOptions(options)
@@ -58,12 +56,7 @@ class ContainerView: UIView {
         pdfView.autoScales = true
         pdfView.isHidden = true
 
-        let imageView = ZoomImageView()
-        imageView.backgroundColor = .lightGray
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.isHidden = true
-
-        let stackView = UIStackView(arrangedSubviews: [toolBarView, pdfView, imageView])
+        let stackView = UIStackView(arrangedSubviews: [toolBarView, pdfView])
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .vertical
         stackView.spacing = 0
@@ -81,7 +74,6 @@ class ContainerView: UIView {
         ])
 
         self.pdfView = pdfView
-        self.imageView = imageView
         self.toolBarView = toolBarView
     }
 
@@ -143,11 +135,6 @@ class ContainerView: UIView {
 
     }
 
-    private func configurePDFView() {
-
-
-    }
-
     private func loadPDF(for pathString: String) {
         guard let url = URL(string: pathString) else {
             print("RNPDFEditor: can't create URL from string")
@@ -168,8 +155,16 @@ class ContainerView: UIView {
     private func loadImage(for pathString: String) {
         let url = URL(fileURLWithPath: pathString)
         if let imageData = try? Data(contentsOf: url), let image = UIImage(data: imageData) {
-            self.imageView.isHidden = false
-            self.imageView.setImage(image)
+            let document = PDFDocument()
+            let pdfPage = PDFPage(image: image)
+            document.insert(pdfPage!, at: 0)
+
+            self.pdfView.isHidden = false
+            self.pdfView.drawingDelegate = pdfDrawer
+            self.pdfView.document = document
+            self.pdfView.disableSelection(in: self.pdfView)
+
+            self.pdfDrawer.pdfView = pdfView
         } else {
             print("RNPDFEditor: can't create Image from URL")
         }
@@ -229,6 +224,58 @@ class ContainerView: UIView {
         }
     }
 
+    private func saveImage() {
+        guard let onSavePDF = self.onSavePDF else {
+            print("RNPDFEditor: error while saving image, onSavePDF is nil, can't return value")
+            return
+        }
+
+        var params: [String : String?] = ["url" : nil]
+
+        let today = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+
+        if let fileNameWithExt = fileName.components(separatedBy: "/").last,
+           let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
+            let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".png"
+            let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
+
+            guard let document = pdfView.document,
+                  let page = document.page(at: 0) else {
+                print("RNPDFEditor: image not writed locally")
+                onSavePDF(params as [AnyHashable : Any])
+                return
+            }
+            let bounds = page.bounds(for: .cropBox)
+
+            let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
+
+            let image = renderer.image { (context) in
+                context.cgContext.saveGState()
+                context.cgContext.translateBy(x: 0, y: bounds.height)
+                context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
+                page.draw(with: .mediaBox, to: context.cgContext)
+                context.cgContext.restoreGState()
+            }
+
+            if let data = image.pngData() {
+                do {
+                    try data.write(to: fileURL)
+                } catch {
+                    print("RNPDFEditor: can't create image for saving")
+                    onSavePDF(params as [AnyHashable : Any])
+                    return
+                }
+            }
+            params["url"] = fileURL.absoluteString
+            onSavePDF(params as [AnyHashable : Any])
+        } else {
+            print("RNPDFEditor: can't handle URL")
+            onSavePDF(params as [AnyHashable : Any])
+        }
+    }
+
     private func getDocumentsDirectory() -> URL {
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         let documentsDirectory = paths[0]
@@ -247,6 +294,6 @@ extension ContainerView: ToolBarViewDelegate {
     }
 
     func saveButtonTapped() {
-        self.savePDF()
+        canvasType == .image ? self.saveImage() : self.savePDF()
     }
 }
