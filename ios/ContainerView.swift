@@ -107,14 +107,6 @@ class ContainerView: UIView {
             print("RNPDFEditor: \"isToolBarHidden\" value is wrong")
         }
 
-//        if let startWithEdit = options["startWithEdit"] as? Bool {
-//            if (startWithEdit) {
-//                
-//            }
-//        } else {
-//            print("RNPDFEditor: \"startWithEdit\" value is wrong")
-//        }
-
         if let pdfViewBackgroundColor = options["viewBackgroundColor"] as? String {
             pdfView.backgroundColor  = UIColor(hexString: pdfViewBackgroundColor)
         } else {

@@ -29,7 +29,6 @@ interface RNComponentProps {
     viewBackgroundColor?: string;
     lineColor?: string;
     lineWidth?: Float;
-    startWithEdit?: boolean;
   };
   onSavePDF?(url: string | null): void;
 }
