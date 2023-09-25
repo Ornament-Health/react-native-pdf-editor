@@ -1,4 +1,4 @@
-package com.ornament.pdfeditor
+package com.ornament.pdfeditor.bridge
 
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReadableArray
@@ -8,6 +8,7 @@ import com.facebook.react.uimanager.SimpleViewManager
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.annotations.ReactProp
 import com.facebook.react.uimanager.events.RCTEventEmitter
+import com.ornament.pdfeditor.PDFEditorView
 
 class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
     override fun getName() = "RNPDFEditorView"
@@ -46,10 +47,9 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
     override fun receiveCommand(root: PDFEditorView, commandId: String?, args: ReadableArray?) {
         super.receiveCommand(root, commandId, args)
         when(commandId) {
-            "scrollAction" -> root.setScrollMode()
-            "drawAction" -> root.setDrawMode()
             "undoAction" -> root.undo()
             "saveAction" -> root.save()
+            "clearAction" -> root.clear()
         }
     }
 }

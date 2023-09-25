@@ -1,7 +1,6 @@
 package com.ornament.pdfeditor.extenstions
 
 import android.graphics.PointF
-import kotlin.math.sqrt
 
 internal operator fun PointF.minus(other: PointF) = PointF(
     this.x - other.x,

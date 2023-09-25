@@ -66,17 +66,22 @@ repositories {
   google()
 }
 
-def kotlin_version = getExtOrDefault("kotlinVersion")
-
 dependencies {
   // For < 0.71, this will be from the local maven repo
   // For > 0.71, this will be replaced by `com.facebook.react:react-android:$version` by react gradle plugin
   //noinspection GradleDynamicVersion
   implementation "com.facebook.react:react-native:+"
-  implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-  implementation "com.tom-roush:pdfbox-android:2.0.27.0"
+  implementation "org.jetbrains.kotlin:kotlin-stdlib:${getExtOrDefault("kotlinVersion")}"
   implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
   implementation 'androidx.recyclerview:recyclerview:1.3.1'
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:${getExtOrDefault("kotlinVersion")}"
+  implementation 'com.github.awxkee:avif-coder:1.5.1'
+  implementation 'com.itextpdf:itext7-core:8.0.1'
+
+  def i_text_version = '8.0.0'
+  implementation ("com.itextpdf:itext7-core:$i_text_version")
+
+
 }
 
 if (isNewArchitectureEnabled()) {
