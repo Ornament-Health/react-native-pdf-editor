@@ -119,10 +119,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         this.options = options
         background = ColorDrawable(options.backgroundColor)
         options.fileName?.let {
-            when (options.contentType) {
-                PDFEditorOptions.ContentType.PDF -> loadPDF(it)
-                else -> loadImage(it)
-            }
+            load(it)
         }
     }
 
@@ -146,11 +143,11 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                 FileOutputStream(path).also { outputFileStream ->
                     outputStream.writeTo(outputFileStream)
                     outputFileStream.close()
+                    outputStream.close()
                 }
                 Log.i(ACTION_TAG, "SAVE")
             }
         )
-        outputStream.close()
         load(currentFilePath)
     }
     private fun savePdf() {
