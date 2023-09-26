@@ -101,7 +101,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                         currentPage?.close()
                         currentPage = renderer.openPage(0)
                         pageSize = with(currentPage!!) { SizeF(width.toFloat(), height.toFloat()) }
-                        minScale = (viewPort.width.toFloat() - 2 * PAGE_MARGIN) / pageSize.width
+                        minScale = viewPort.width.toFloat() / (pageSize.width + 2 * PAGE_MARGIN)
                     }
                     PDFEditorOptions.ContentType.IMAGE -> {
                         pageSize = with(imageBitmap) { SizeF(width.toFloat(), height.toFloat()) }
