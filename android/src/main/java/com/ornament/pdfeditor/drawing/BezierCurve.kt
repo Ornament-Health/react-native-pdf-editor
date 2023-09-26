@@ -20,11 +20,11 @@ import com.ornament.pdfeditor.extenstions.times
 class BezierCurve(val pageIndex: Int, private val pageSize: SizeF, private val width: Float, @ColorInt private val color: Int) {
     private val points = mutableListOf<PointF>()
 
-    fun drawOnCanvas(canvas: Canvas, paint: Paint, pageBounds: RectF, actualScale: Float, alpha: Int = 255) {
+    fun drawOnCanvas(canvas: Canvas, paint: Paint, drawClip: RectF, actualScale: Float, alpha: Int = 255) {
         if (points.isEmpty()) return
         paint.strokeWidth = width * actualScale
         paint.alpha = alpha
-        val offset = PointF(pageBounds.left, pageBounds.top)
+        val offset = PointF(drawClip.left, drawClip.top)
         val path = Path()
         val offsetPoints = getAllPoints().map { it * actualScale + offset }
         path.moveTo(offsetPoints[0].x, offsetPoints[0].y)
@@ -45,8 +45,8 @@ class BezierCurve(val pageIndex: Int, private val pageSize: SizeF, private val w
 
         //drawing path
         val pageSize = Size(
-            (pageBounds.right - pageBounds.left).toInt(),
-            (pageBounds.bottom - pageBounds.top).toInt()
+            drawClip.width().toInt(),
+            drawClip.height().toInt()
         )
         val bitmap = Bitmap.createBitmap(pageSize.width, pageSize.height, Bitmap.Config.ARGB_8888)
         Canvas(bitmap).drawPath(path, paint)

@@ -31,12 +31,14 @@ import com.ornament.pdfeditor.databinding.ViewPdfEditorBinding
 import com.ornament.pdfeditor.drawing.BezierCurve
 import com.ornament.pdfeditor.extenstions.minus
 import com.ornament.pdfeditor.extenstions.plus
+import com.ornament.pdfeditor.extenstions.times
 import com.ornament.pdfeditor.utils.XmlParserFactory
 import com.radzivon.bartoshyk.avif.coder.HeifCoder
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.max
+import kotlin.math.min
 
 class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
@@ -72,6 +74,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         set(value) {
             field = value
             scale = scale.coerceAtLeast(value)
+            previousScale = scale
         }
 
     private val boundsOfPages = mutableMapOf<Int, RectF>()
@@ -80,11 +83,10 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
     private var scale: Float = minScale
         set(value) {
-            val preScale = field
+            previousScale = field
             field = value.coerceAtLeast(minScale).coerceAtMost(MAX_SCALE * minScale)
-            preScaleDifference = field / preScale
         }
-    private var preScaleDifference = 0f
+    private var previousScale = scale
 
     init {
         XmlProcessorCreator.setXmlParserFactory(XmlParserFactory())
@@ -148,6 +150,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                 Log.i(ACTION_TAG, "SAVE")
             }
         )
+        outputStream.close()
         load(currentFilePath)
     }
     private fun savePdf() {
@@ -202,14 +205,14 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
 
     private fun load(filePath: String) {
+        currentFilePath = filePath
+        outputStream = ByteArrayOutputStream()
         if (options.contentType == PDFEditorOptions.ContentType.PDF) loadPDF(filePath)
         else loadImage(filePath)
         render()
     }
 
     private fun loadPDF(filePath: String) {
-        currentFilePath = filePath
-        outputStream = ByteArrayOutputStream()
         pdfDocument = PdfDocument(PdfReader(filePath), PdfWriter(outputStream))
         renderer = PdfRenderer(
             ParcelFileDescriptor.open(
@@ -221,7 +224,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
 
     private fun loadImage(filePath: String) {
-        currentFilePath = filePath
         imageBitmap = if (filePath.lowercase().endsWith(".heic"))
             HeifCoder().decode(File(filePath).readBytes())
         else
@@ -241,6 +243,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             else -> renderImage()
         }
         renderDrawing()
+
     }
 
     private fun renderImage() {
@@ -311,6 +314,13 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
     private fun renderDrawingOnPage(index: Int, bitmap: Bitmap) {
         val pageRect = boundsOfPages[index] ?: return
+        val drawClip = RectF(
+            max(pageRect.left, 0f),
+            max(pageRect.top, 0f),
+            min(pageRect.right, viewPort.width.toFloat()),
+            min(pageRect.bottom, viewPort.height.toFloat()),
+        )
+        if (drawClip.height() < 0) return
         val pagePaint = Paint().apply {
             color = options.lineColor
             strokeWidth = options.lineWidth.toFloat()
@@ -319,8 +329,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         }
         val pageDrawing = drawing.filter { it.pageIndex == index }
         val drawingBitmap = Bitmap.createBitmap(
-            (pageSize.width * scale).toInt(),
-            (pageSize.height * scale).toInt(),
+            drawClip.width().toInt(),
+            drawClip.height().toInt(),
             Bitmap.Config.ARGB_8888
         )
         Canvas(drawingBitmap).let { canvas ->
@@ -329,22 +339,17 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                     canvas,
                     pagePaint,
                     RectF(
-                        0f,
-                        0f,
-                        drawingBitmap.width.toFloat(),
-                        drawingBitmap.height.toFloat()
+                        pageRect.left - drawClip.left,
+                        pageRect.top - drawClip.top,
+                        drawClip.width(),
+                        drawClip.height()
                     ),
                     scale,
                     if (it == currentDrawing) 128 else 255
                 )
             }
         }
-        Canvas(bitmap).drawBitmap(drawingBitmap, pageRect.left, pageRect.top, Paint())
-    }
-
-    override fun draw(canvas: Canvas) {
-        super.draw(canvas)
-
+        Canvas(bitmap).drawBitmap(drawingBitmap, null, drawClip, Paint())
     }
 
 
@@ -360,6 +365,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 startShapeOnPoint = PointF(event.x, event.y)
+                render()
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -390,8 +396,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                         (event.getX(0) + event.getX(1)) / 2,
                         (event.getY(0) + event.getY(1)) / 2
                     )
-                    val scaleDifference = PointF(pageSize.width * (preScaleDifference - 1), pageSize.height * ( preScaleDifference - 1))
-                    movementDifference += currentPoint - lastPoint!! - scaleDifference
+                    movementDifference *= scale / previousScale
+                    movementDifference += currentPoint * (2 - scale / previousScale) - lastPoint!!
                     movementDifference.x = movementDifference.x
                         .coerceAtLeast(viewPort.width - (pageSize.width + PAGE_MARGIN * 2) * scale)
                         .coerceAtMost(0f)
@@ -399,8 +405,9 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                         .coerceAtMost(0f)
                         .coerceAtLeast(viewPort.height - (pageCount * pageSize.height + PAGE_MARGIN * (pageCount + 1)) * scale)
                     render()
+                    lastPoint = currentPoint
                 } else if (!isAfterScale) drawOnPage(currentPoint)
-                lastPoint = currentPoint
+
 
             }
 
