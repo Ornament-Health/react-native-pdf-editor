@@ -151,7 +151,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     fun undo() {
         drawing.removeLastOrNull()
         render()
-        Log.i(ACTION_TAG, "UNDO")
+        Log.d(ACTION_TAG, "UNDO")
     }
 
     fun save() {
@@ -164,7 +164,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                     outputFileStream.close()
                     outputStream.close()
                 }
-                Log.i(ACTION_TAG, "SAVE")
+                Log.d(ACTION_TAG, "SAVE")
             }
         )
         load(currentFilePath)
@@ -219,7 +219,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     fun clear() {
         drawing.clear()
         render()
-        Log.i(ACTION_TAG, "CLEAR")
+        Log.d(ACTION_TAG, "CLEAR")
     }
 
     private fun load(filePath: String) {
