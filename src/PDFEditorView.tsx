@@ -16,8 +16,6 @@ import type { Float } from 'react-native/Libraries/Types/CodegenTypes';
 const ComponentName = 'RNPDFEditorView';
 
 interface ExtRef {
-  scrollAction(): void;
-  drawAction(): void;
   undoAction(): void;
   clearAction(): void;
   saveAction(): void;
@@ -49,39 +47,11 @@ type PDFEVRef = React.ComponentRef<typeof RNComponentViewManager>;
 export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
   ({ onSavePDF, ...props }, extRef) => {
     useImperativeHandle(extRef, () => ({
-      scrollAction,
-      drawAction,
       undoAction,
       clearAction,
       saveAction,
     }));
     const componentRef = useRef<PDFEVRef>(null);
-
-    const scrollAction = () => {
-      if (componentRef && componentRef.current) {
-        UIManager.dispatchViewManagerCommand(
-          findNodeHandle(componentRef.current),
-          Platform.OS === 'ios'
-            ? (UIManager.getViewManagerConfig(ComponentName).Commands
-                .scrollAction as number)
-            : 'scrollAction',
-          undefined
-        );
-      }
-    };
-
-    const drawAction = () => {
-      if (componentRef && componentRef.current) {
-        UIManager.dispatchViewManagerCommand(
-          findNodeHandle(componentRef.current),
-          Platform.OS === 'ios'
-            ? (UIManager.getViewManagerConfig(ComponentName).Commands
-                .drawAction as number)
-            : 'drawAction',
-          undefined
-        );
-      }
-    };
 
     const undoAction = () => {
       if (componentRef && componentRef.current) {
@@ -132,8 +102,6 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
     return (
       <RNComponentViewManager
         ref={componentRef}
-        scrollAction={scrollAction}
-        drawAction={drawAction}
         undoAction={undoAction}
         clearAction={clearAction}
         saveAction={saveAction}
