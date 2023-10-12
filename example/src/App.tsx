@@ -1,6 +1,6 @@
 import React, { ComponentRef, useRef } from 'react';
 import RNFS from 'react-native-fs';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { PDFEditorView } from '@ornament-health/react-native-pdf-editor';
 
 type PDFEVRef = ComponentRef<typeof PDFEditorView>;
@@ -8,14 +8,26 @@ type PDFEVRef = ComponentRef<typeof PDFEditorView>;
 export default function App() {
   const pdfRef = useRef<PDFEVRef>(null);
 
-  const source = 'file://' + RNFS.MainBundlePath + '/book.pdf';
+  const sourcePDF = Platform.OS === 'ios'
+  ? 'file://' + RNFS.MainBundlePath + '/example.pdf'
+  : 'file://' + RNFS.MainBundlePath + '/example.pdf';
+
+  const sourceJPG = Platform.OS === 'ios'
+  ? RNFS.MainBundlePath + '/example.jpg'
+  : RNFS.MainBundlePath + '/example.jpg';  
+
+  enum CanvasType {
+    Image = 'image',
+    PDF = 'pdf'
+  }
+
   const options = {
-    fileName: source,
+    fileName: sourcePDF,
+    canvasType: CanvasType.PDF,
     isToolBarHidden: false,
     viewBackgroundColor: '#40a35f',
     lineColor: '#4287f5',
-    lineWidth: 40,
-    startWithEdit: true,
+    lineWidth: 40
   };
 
   const handleSavePDF = (e: string | null) => {
@@ -24,15 +36,7 @@ export default function App() {
     } else {
       console.log('got url:', e);
     }
-  };
-
-  const onPressScroll = () => {
-    pdfRef.current?.scrollAction();
-  };
-
-  const onPressDraw = () => {
-    pdfRef.current?.drawAction();
-  };
+  };  
 
   const onPressUndo = () => {
     pdfRef.current?.undoAction();
@@ -48,17 +52,7 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.topView}>
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.button} onPress={onPressScroll}>
-            <Text style={styles.buttonText}>Scroll</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.button} onPress={onPressDraw}>
-            <Text style={styles.buttonText}>Draw</Text>
-          </TouchableOpacity>
-        </View>
+      <View style={styles.topView}>        
         <View style={styles.buttonContainer}>
           <TouchableOpacity style={styles.button} onPress={onPressUndo}>
             <Text style={styles.buttonText}>Undo</Text>

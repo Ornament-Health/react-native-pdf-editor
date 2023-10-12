@@ -6,11 +6,6 @@
 import Foundation
 import PDFKit
 
-enum DrawingTool {
-    case pen
-    case undo
-}
-
 class PDFDrawer {
     weak var pdfView: PDFView!
     private var path: UIBezierPath?
@@ -20,7 +15,6 @@ class PDFDrawer {
     var color = UIColor.red // default color is red
     var width: CGFloat = 5 // default width
     var alpha: CGFloat = 0.3 // default alpha
-    var drawingTool = DrawingTool.pen
 
     func undo() {
         if let lastAnnotation = allAnnotations.last,
@@ -40,6 +34,7 @@ class PDFDrawer {
 }
 
 extension PDFDrawer: DrawingGestureRecognizerDelegate {
+
     func gestureRecognizerBegan(_ location: CGPoint) {
         guard let page = pdfView.page(for: location, nearest: true) else { return }
         currentPage = page

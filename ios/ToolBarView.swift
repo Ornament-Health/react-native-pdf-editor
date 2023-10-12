@@ -8,8 +8,6 @@ import UIKit
 
 @objc(ToolBarViewDelegate)
 protocol ToolBarViewDelegate: AnyObject {
-    func moveButtonTapped()
-    func lineButtonTapped()
     func undoButtonTapped()
     func clearButtonTapped()
     func saveButtonTapped()
@@ -31,16 +29,6 @@ class ToolBarView: UIView {
 
     private func setupView() {
 
-        let moveButton = UIButton(type: .system)
-        moveButton.translatesAutoresizingMaskIntoConstraints = false
-        moveButton.setTitle("Scroll", for: .normal)
-        moveButton.addTarget(self, action: #selector(moveButtonTapped), for: .touchUpInside)
-
-        let lineButton = UIButton(type: .system)
-        lineButton.translatesAutoresizingMaskIntoConstraints = false
-        lineButton.setTitle("Draw", for: .normal)
-        lineButton.addTarget(self, action: #selector(lineButtonTapped), for: .touchUpInside)
-
         let undoButton = UIButton(type: .system)
         undoButton.translatesAutoresizingMaskIntoConstraints = false
         undoButton.setTitle("Undo", for: .normal)
@@ -56,7 +44,7 @@ class ToolBarView: UIView {
         saveButton.setTitle("Save", for: .normal)
         saveButton.addTarget(self, action: #selector(saveButtonTapped), for: .touchUpInside)
 
-        let stackView = UIStackView(arrangedSubviews: [moveButton, lineButton, undoButton, clearButton, saveButton])
+        let stackView = UIStackView(arrangedSubviews: [undoButton, clearButton, saveButton])
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
         stackView.spacing = 8
@@ -71,14 +59,6 @@ class ToolBarView: UIView {
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
             trailingAnchor.constraint(equalTo: stackView.trailingAnchor)
         ])
-    }
-
-    @objc func moveButtonTapped() {
-        delegate?.moveButtonTapped()
-    }
-
-    @objc func lineButtonTapped() {
-        delegate?.lineButtonTapped()
     }
 
     @objc func undoButtonTapped() {
