@@ -2,41 +2,30 @@ package com.ornament.pdfeditor
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.PointF
-import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
-import android.graphics.pdf.PdfRenderer
 import android.os.Environment
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.util.Size
-import android.util.SizeF
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.ViewTreeObserver.OnGlobalLayoutListener
 import androidx.constraintlayout.widget.ConstraintLayout
-import com.itextpdf.kernel.pdf.PdfDocument
-import com.itextpdf.kernel.pdf.PdfReader
-import com.itextpdf.kernel.pdf.PdfWriter
-import com.itextpdf.kernel.pdf.canvas.PdfCanvas
 import com.itextpdf.kernel.utils.XmlProcessorCreator
-import com.itextpdf.layout.Document
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.databinding.ViewPdfEditorBinding
+import com.ornament.pdfeditor.document.Document
 import com.ornament.pdfeditor.drawing.BezierCurve
 import com.ornament.pdfeditor.extenstions.minus
 import com.ornament.pdfeditor.extenstions.plus
 import com.ornament.pdfeditor.extenstions.times
 import com.ornament.pdfeditor.utils.XmlParserFactory
-import com.radzivon.bartoshyk.avif.coder.HeifCoder
-import java.io.ByteArrayOutputStream
-import java.io.File
-import java.io.FileOutputStream
-import kotlin.math.max
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sqrt
@@ -45,51 +34,38 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
     companion object {
         private const val ACTION_TAG = "ACTION"
-        private const val OUTPUT_FILE_NAME = "output"
-        private const val PAGE_MARGIN = 10f
+        private const val MARGIN = 20f
         private const val MAX_SCALE = 5f
-        private fun getOutputPath(context: Context, contentType: PDFEditorOptions.ContentType) =
-            context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)?.absolutePath?.plus("/$OUTPUT_FILE_NAME.")
-                ?.plus(
-                    if (contentType == PDFEditorOptions.ContentType.PDF) "pdf" else "png"
-                )
     }
+
+    private val outputDirectory =
+        context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)?.absolutePath
 
     private val binding: ViewPdfEditorBinding
     private lateinit var viewPort: Size
 
     private lateinit var options: PDFEditorOptions
 
-    private var outputStream = ByteArrayOutputStream()
-    private lateinit var pdfDocument: PdfDocument
-    private lateinit var renderer: PdfRenderer
-    private var currentPage: PdfRenderer.Page? = null
-    private lateinit var pageSize: SizeF
-    private var movementDifference = PointF(0f, 0f)
-    private var currentFilePath = ""
-    private var pageCount = 1
+    private val operationList = mutableListOf<Int>()
 
-    private lateinit var imageBitmap: Bitmap
+    private var movementDifference = PointF(0f, 0f)
+    private var currentFilePaths = listOf<String>()
+
     private lateinit var layerBitmap: Bitmap
 
-    private var minScale = 1f
-        set(value) {
-            field = value
-            scale = scale.coerceAtLeast(value)
-            previousScale = scale
-        }
+    private val documents = mutableListOf<Document>()
+    private var documentsHeight = 0f
 
-    private val boundsOfPages = mutableMapOf<Int, RectF>()
-    private val bitmapPages = mutableMapOf<Int, Bitmap>()
-    private val drawing = mutableListOf<BezierCurve>()
-
-    private var scale: Float = 0f
+    private val coroutineScope = CoroutineScope(Dispatchers.Main)
+    private var renderingJob: Job? = null
+    private var scale: Float = 1f
         set(value) {
             previousScale = field
-            field = value.coerceAtLeast(minScale).coerceAtMost(MAX_SCALE * minScale)
+            field = value.coerceAtLeast(1f).coerceAtMost(MAX_SCALE)
         }
     private var previousScale = scale
 
+    private var optionsHandled = false
     init {
         XmlProcessorCreator.setXmlParserFactory(XmlParserFactory())
         binding = ViewPdfEditorBinding.inflate(LayoutInflater.from(context), this, true)
@@ -98,274 +74,123 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             override fun onGlobalLayout() {
                 viewTreeObserver.removeOnGlobalLayoutListener(this)
                 viewPort = with(binding.root) { Size(width, height) }
-                initOptions()
+                if (!optionsHandled) setOptions(options)
             }
         }
         viewTreeObserver.addOnGlobalLayoutListener(listener)
     }
 
-    private fun initOptions() {
-        if (!this::viewPort.isInitialized) return
-        when (options.contentType) {
-            PDFEditorOptions.ContentType.PDF -> {
-                currentPage?.close()
-                currentPage = renderer.openPage(0)
-                pageSize = with(currentPage!!) { SizeF(width.toFloat(), height.toFloat()) }
-                minScale = viewPort.width.toFloat() / (pageSize.width + 2 * PAGE_MARGIN)
-            }
-
-            PDFEditorOptions.ContentType.IMAGE -> {
-                pageSize = with(imageBitmap) { SizeF(width.toFloat(), height.toFloat()) }
-                minScale = max(
-                    viewPort.width.toFloat() / (pageSize.width + 2 * PAGE_MARGIN),
-                    viewPort.height.toFloat() / (pageSize.height + 2 * PAGE_MARGIN)
-                )
-            }
-        }
-        reset()
-        render()
-    }
     private fun reset() {
-        scale = minScale
-        movementDifference = PointF(0f,0f)
-        boundsOfPages.clear()
-        bitmapPages.clear()
-        drawing.clear()
+        scale = 1f
+        movementDifference = PointF(0f, 0f)
+        documents.forEach { it.reset() }
     }
 
     fun setOptions(options: PDFEditorOptions) {
         this.options = options
+        if (!this::viewPort.isInitialized) {
+            optionsHandled = false
+            return
+        }
+        optionsHandled = true
         background = ColorDrawable(options.backgroundColor)
-        options.fileName?.let {
+        options.filePaths?.let {
             load(it)
         }
-        initOptions()
+        reset()
+        render()
     }
 
-    private var onSavePDFAction: (filePath: String?) -> Unit = {}
+    private var onSavePDFAction: (paths: List<String>?) -> Unit = {}
 
-    fun onSavePDF(action: (filePath: String?) -> Unit) {
+    fun onSavePDF(action: (paths: List<String>?) -> Unit) {
         onSavePDFAction = action
     }
 
     fun undo() {
-        drawing.removeLastOrNull()
-        render()
-        Log.d(ACTION_TAG, "UNDO")
+        operationList.removeLastOrNull()?.let {
+            documents[it].undo()
+            render()
+            Log.d(ACTION_TAG, "UNDO")
+        }
     }
 
     fun save() {
-        if (options.contentType == PDFEditorOptions.ContentType.PDF) savePdf()
-        else saveImage()
-        onSavePDFAction(
-            getOutputPath(context, options.contentType)?.also { path ->
-                FileOutputStream(path).also { outputFileStream ->
-                    outputStream.writeTo(outputFileStream)
-                    outputFileStream.close()
-                    outputStream.close()
-                }
-                Log.d(ACTION_TAG, "SAVE")
-            }
-        )
-        load(currentFilePath)
-    }
-
-    private fun savePdf() {
-        val document = Document(pdfDocument)
-        for (pageNumber in 1..pdfDocument.numberOfPages) {
-            PdfCanvas(pdfDocument.getPage(pageNumber)).let { pdfCanvas ->
-                drawing.filter { it.pageIndex == pageNumber - 1 }.forEach {
-                    it.drawOnPdfCanvas(pdfCanvas)
-                }
-            }
-        }
-        document.close()
-        pdfDocument.close()
-    }
-
-    private fun saveImage() {
-        val pagePaint = Paint().apply {
-            color = options.lineColor
-            strokeWidth = options.lineWidth.toFloat()
-            strokeCap = Paint.Cap.ROUND
-            style = Paint.Style.STROKE
-        }
-        val drawingBitmap = Bitmap.createBitmap(
-            imageBitmap.width,
-            imageBitmap.height,
-            Bitmap.Config.ARGB_8888
-        )
-        Canvas(drawingBitmap).let { canvas ->
-            drawing.filter { it.pageIndex == 0 }.forEach {
-                it.drawOnCanvas(
-                    canvas,
-                    pagePaint,
-                    RectF(
-                        0f,
-                        0f,
-                        drawingBitmap.width.toFloat(),
-                        drawingBitmap.height.toFloat()
-                    ),
-                    1f
+        coroutineScope.launch(Dispatchers.IO) {
+            var outputs: MutableList<String>? = mutableListOf()
+            documents.forEach {
+                outputs?.add(
+                    saveDocument(it) ?: run {
+                        outputs = null
+                        return@forEach
+                    }
                 )
             }
+            onSavePDFAction(outputs)
         }
-        val copy = imageBitmap.copy(Bitmap.Config.ARGB_8888, true)
-        Canvas(copy).drawBitmap(drawingBitmap, 0f, 0f, Paint())
-        copy.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+    }
 
+    private fun saveDocument(document: Document): String? {
+        return outputDirectory?.let {
+            document.save(it, options)
+        }
     }
 
     fun clear() {
-        drawing.clear()
+        operationList.clear()
+        documents.forEach { it.clear() }
         render()
         Log.d(ACTION_TAG, "CLEAR")
     }
 
-    private fun load(filePath: String) {
-        currentFilePath = filePath
-        outputStream = ByteArrayOutputStream()
-        if (options.contentType == PDFEditorOptions.ContentType.PDF) loadPDF(filePath)
-        else loadImage(filePath)
-        render()
-    }
-
-    private fun loadPDF(filePath: String) {
-        pdfDocument = PdfDocument(PdfReader(filePath), PdfWriter(outputStream))
-        renderer = PdfRenderer(
-            ParcelFileDescriptor.open(
-                File(filePath),
-                ParcelFileDescriptor.MODE_READ_ONLY
-            )
-        )
-        pageCount = renderer.pageCount
-    }
-
-    private fun loadImage(filePath: String) {
-        imageBitmap = if (filePath.lowercase().endsWith(".heic"))
-            HeifCoder().decode(File(filePath).readBytes())
-        else
-            BitmapFactory.decodeFile(filePath)
-        pageCount = 1
+    private fun load(filePaths: List<String>) {
+        currentFilePaths = filePaths
+        documents.clear()
+        val firstDocument = Document.create(filePaths.first()).also { documents.add(it) }
+        val documentsWidth = firstDocument.size.width
+        documentsHeight = firstDocument.size.height
+        for (index in 1 until filePaths.size) {
+            val document = Document.create(filePaths[index]).also { documents.add(it) }
+            val factor = documentsWidth / document.size.width
+            documentsHeight += document.size.height * factor
+            document.minScale *= factor
+        }
+        val additionalScale = min(documentsHeight / (viewPort.height.toFloat() - 2 * MARGIN), documentsWidth / ( viewPort.width.toFloat() - 2 * MARGIN))
+        documentsHeight = documentsHeight / additionalScale + MARGIN * (documents.size - 1)
+        documents.forEach { it.minScale /= additionalScale }
     }
 
     private fun render(refresh: Boolean = false) {
         if (!::viewPort.isInitialized) return
-        layerBitmap = Bitmap.createBitmap(
-            viewPort.width,
-            viewPort.height,
-            Bitmap.Config.ARGB_8888
-        )
-        when (options.contentType) {
-            PDFEditorOptions.ContentType.PDF -> renderPdf(refresh)
-            else -> renderImage()
-        }
-        renderDrawing()
-
-    }
-
-    private fun renderImage() {
-        val imageRect = findPdfPageRect(0)
-        Canvas(layerBitmap).drawBitmap(imageBitmap, null, imageRect, Paint())
-        bitmapPages[0] = imageBitmap
-    }
-
-    private fun renderPdf(refresh: Boolean = false) {
-        for (pageIndex in 0 until pdfDocument.numberOfPages) {
-            showPdfPage(pageIndex, refresh)
+        renderingJob?.cancel()
+        renderingJob = coroutineScope.launch {
+            layerBitmap = Bitmap.createBitmap(
+                viewPort.width,
+                viewPort.height,
+                Bitmap.Config.ARGB_8888
+            )
+            val canvas = Canvas(layerBitmap)
+            val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
+            documents.forEach {
+                it.render(canvas, scale, offset, viewPort, refresh)
+                offset.y += it.size.height * scale * it.minScale + MARGIN * scale
+            }
+            renderDrawing()
         }
     }
-
-    private fun renderPdfPage(index: Int): Bitmap? {
-        val pageRect = findPdfPageRect(index)
-        if (pageRect.top > viewPort.height || pageRect.bottom < 0) return null
-        val bitmap = Bitmap.createBitmap(
-            (pageSize.width * scale).toInt(),
-            (pageSize.height * scale).toInt(),
-            Bitmap.Config.ARGB_8888
-        )
-        Canvas(bitmap).drawColor(Color.WHITE)
-        currentPage!!.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-        bitmapPages[index] = bitmap
-        return bitmap
-    }
-
-    private fun showPdfPage(index: Int, refresh: Boolean = false) {
-        val pageRect = findPdfPageRect(index)
-        val pageBitmap = (
-                if (refresh) renderPdfPage(index)
-                else bitmapPages[index] ?: renderPdfPage(index)) ?: return
-        Canvas(layerBitmap).drawBitmap(pageBitmap, null, pageRect, Paint())
-    }
-
-    private fun findPdfPageRect(index: Int): RectF {
-        if (options.contentType == PDFEditorOptions.ContentType.PDF) {
-            currentPage?.close()
-            currentPage = renderer.openPage(index)
-        }
-
-        val offset = PointF(
-            PAGE_MARGIN * scale + movementDifference.x,
-            (PAGE_MARGIN + (pageSize.height + PAGE_MARGIN) * index) * scale + movementDifference.y
-        )
-
-        return RectF(
-            offset.x,
-            offset.y,
-            pageSize.width * scale + offset.x,
-            pageSize.height * scale + offset.y
-        ).also {
-            boundsOfPages[index] = it
-        }
-    }
-
 
     private fun renderDrawing() {
         val bitmap = layerBitmap.copy(Bitmap.Config.ARGB_8888, true)
-        for (pageIndex in 0 until pageCount) {
-            renderDrawingOnPage(pageIndex, bitmap)
+        documents.forEach {
+            it.renderDrawing(
+                bitmap,
+                scale,
+                viewPort,
+                options.lineColor,
+                options.lineWidth
+            )
         }
         binding.viewPort.setImageBitmap(bitmap)
-    }
-
-    private fun renderDrawingOnPage(index: Int, bitmap: Bitmap) {
-        val pageRect = boundsOfPages[index] ?: return
-        val drawClip = RectF(
-            max(pageRect.left, 0f),
-            max(pageRect.top, 0f),
-            min(pageRect.right, viewPort.width.toFloat()),
-            min(pageRect.bottom, viewPort.height.toFloat()),
-        )
-        if (drawClip.height() < 0 || drawClip.width() < 0) return
-        val pagePaint = Paint().apply {
-            color = options.lineColor
-            strokeWidth = options.lineWidth.toFloat()
-            strokeCap = Paint.Cap.ROUND
-            style = Paint.Style.STROKE
-        }
-        val pageDrawing = drawing.filter { it.pageIndex == index }
-        val drawingBitmap = Bitmap.createBitmap(
-            drawClip.width().toInt(),
-            drawClip.height().toInt(),
-            Bitmap.Config.ARGB_8888
-        )
-        Canvas(drawingBitmap).let { canvas ->
-            pageDrawing.forEach {
-                it.drawOnCanvas(
-                    canvas,
-                    pagePaint,
-                    RectF(
-                        pageRect.left - drawClip.left,
-                        pageRect.top - drawClip.top,
-                        drawClip.width(),
-                        drawClip.height()
-                    ),
-                    scale,
-                    if (it == currentDrawing) 128 else 255
-                )
-            }
-        }
-        Canvas(bitmap).drawBitmap(drawingBitmap, null, drawClip, Paint())
     }
 
 
@@ -408,7 +233,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                     return true
                 }
                 startShapeOnPoint?.let {
-                    addShapeOnPage(it)
+                    addShape(it)
                     startShapeOnPoint = null
                 }
                 if (event.pointerCount == 2) {
@@ -422,35 +247,39 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                         event.getX(1),
                         event.getY(1)
                     )
-                    scale *= (currentDifference / lastDifference!!)
-
+                    val difScale = currentDifference / lastDifference!!
+                    val difMove = currentPoint - lastPoint!!
+                    if (abs(difScale - 1) < 0.001 || abs(difMove.x) < 1 || abs(difMove.y) < 1) return true
+                    scale *= difScale
                     //processing scaling
                     movementDifference *= scale / previousScale
                     movementDifference += currentPoint * (1 - scale / previousScale)
 
                     //processing movement
-                    movementDifference += currentPoint - lastPoint!!
+                    movementDifference += difMove
                     movementDifference.x = movementDifference.x
-                        .coerceAtLeast(viewPort.width - (pageSize.width + PAGE_MARGIN * 2) * scale)
+                        .coerceAtLeast(viewPort.width - (with(documents.first()) { size.width * minScale } + MARGIN * 2) * scale)
                         .coerceAtMost(0f)
                     movementDifference.y = movementDifference.y
                         .coerceAtMost(0f)
-                        .coerceAtLeast(viewPort.height - (pageCount * pageSize.height + PAGE_MARGIN * (pageCount + 1)) * scale)
+                        .coerceAtLeast(viewPort.height - (documentsHeight + MARGIN * 2) * scale)
                     render()
                     lastPoint = currentPoint
                     lastDifference = currentDifference
-                } else if (!isAfterScale) drawOnPage(currentPoint)
+                } else if (!isAfterScale) drawOnDocuments(currentPoint)
 
 
             }
 
             MotionEvent.ACTION_POINTER_UP -> {
                 if (event.pointerCount == 2) isAfterScale = true
+                currentDrawing?.close()
                 currentDrawing = null
                 lastPoint = null
             }
 
             MotionEvent.ACTION_UP -> {
+                currentDrawing?.close()
                 currentDrawing = null
                 isAfterScale = false
                 lastPoint = null
@@ -464,29 +293,34 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         (x2 - x1).pow(2) + (y2 - y1).pow(2)
     )
 
-    private fun addShapeOnPage(point: PointF) {
-        var pageIndex: Int? = null
-        boundsOfPages.forEach { (index, rect) ->
-            if (rect.contains(point.x, point.y)) {
-                pageIndex = index
-            }
-        }
-        pageIndex?.let { index ->
-            currentDrawing =
-                BezierCurve(
-                    index,
-                    pageSize,
-                    options.lineWidth.toFloat() * minScale / scale,
+    private fun addShape(point: PointF) {
+        val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
+        documents.forEachIndexed { index, document ->
+            if (document.contains(point)) {
+                currentDrawing = BezierCurve(
+                    options.lineWidth.toFloat() / scale,
                     options.lineColor
                 ).also {
-                    drawing.add(it)
+                    document.addDrawing(point, it)
                 }
+                operationList.add(index)
+                return@forEachIndexed
+            }
+            offset.y += document.size.height * scale * document.minScale + MARGIN * scale
         }
+
     }
 
-    private fun drawOnPage(point: PointF) {
-        currentDrawing?.addPoint(point, boundsOfPages[currentDrawing!!.pageIndex]!!)
-        renderDrawing()
+    private fun drawOnDocuments(point: PointF) {
+        val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
+        documents.forEach { document ->
+            if (document.contains(point)) {
+                document.addPointToDrawing(point,offset, scale)
+                renderDrawing()
+                return@forEach
+            }
+            offset.y += document.size.height * scale * document.minScale + MARGIN * scale
+        }
     }
 
 }

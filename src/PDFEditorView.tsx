@@ -24,14 +24,14 @@ interface ExtRef {
 interface RNComponentProps {
   style: ViewStyle;
   options: {
-    fileName: string;
+    filePath: string[];
+    canvasType: string;
     isToolBarHidden?: boolean;
     viewBackgroundColor?: string;
     lineColor?: string;
     lineWidth?: Float;
-    startWithEdit?: boolean;
   };
-  onSavePDF?(url: string | null): void;
+  onSavePDF?(url: string[] | null): void;
 }
 
 export interface RNComponentManagerProps
