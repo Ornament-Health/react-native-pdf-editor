@@ -1,28 +1,16 @@
 import React, { ComponentRef, useRef } from 'react';
 import RNFS from 'react-native-fs';
-import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  Platform,
-} from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { PDFEditorView } from '@ornament-health/react-native-pdf-editor';
 
 type PDFEVRef = ComponentRef<typeof PDFEditorView>;
 
 export default function App() {
+  const source1 = RNFS.ExternalDirectoryPath + '/img1.jpg';
+  const source2 = RNFS.ExternalDirectoryPath + '/img2.jpeg';
+  const source3 = RNFS.ExternalDirectoryPath + '/book.pdf';
+
   const pdfRef = useRef<PDFEVRef>(null);
-
-  const sourcePDF =
-    Platform.OS === 'ios'
-      ? 'file://' + RNFS.MainBundlePath + '/example.pdf'
-      : RNFS.ExternalDirectoryPath + '/book.pdf';
-
-  // const sourceJPG =
-  //   Platform.OS === 'ios'
-  //     ? RNFS.MainBundlePath + '/example.jpg'
-  //     : RNFS.MainBundlePath + '/example.jpg';
 
   enum CanvasType {
     Image = 'image',
@@ -30,15 +18,15 @@ export default function App() {
   }
 
   const options = {
-    fileName: sourcePDF,
-    canvasType: CanvasType.PDF,
+    filePath: [source2, source1, source3],
+    canvasType: CanvasType.Image,
     isToolBarHidden: false,
     viewBackgroundColor: '#40a35f',
     lineColor: '#4287f5',
     lineWidth: 40,
   };
 
-  const handleSavePDF = (e: string | null) => {
+  const handleSavePDF = (e: string[] | null) => {
     if (e === null) {
       console.log('got null value for url:', e);
     } else {
