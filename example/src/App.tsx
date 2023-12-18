@@ -19,10 +19,10 @@ export default function App() {
       ? 'file://' + RNFS.MainBundlePath + '/example.pdf'
       : RNFS.ExternalDirectoryPath + '/book.pdf';
 
-  //   const sourceJPG =
-  //     Platform.OS === 'ios'
-  //       ? RNFS.MainBundlePath + '/example.jpg'
-  //       : RNFS.ExternalDirectoryPath + '/example.jpg';
+  // const sourceJPG =
+  //   Platform.OS === 'ios'
+  //     ? RNFS.MainBundlePath + '/example.jpg'
+  //     : RNFS.MainBundlePath + '/example.jpg';
 
   enum CanvasType {
     Image = 'image',
@@ -36,7 +36,6 @@ export default function App() {
     viewBackgroundColor: '#40a35f',
     lineColor: '#4287f5',
     lineWidth: 40,
-    startWithEdit: true,
   };
 
   const handleSavePDF = (e: string | null) => {
