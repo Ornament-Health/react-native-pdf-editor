@@ -1,6 +1,12 @@
 import React, { ComponentRef, useRef } from 'react';
 import RNFS from 'react-native-fs';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  Platform,
+} from 'react-native';
 import { PDFEditorView } from '@ornament-health/react-native-pdf-editor';
 
 type PDFEVRef = ComponentRef<typeof PDFEditorView>;
@@ -8,17 +14,19 @@ type PDFEVRef = ComponentRef<typeof PDFEditorView>;
 export default function App() {
   const pdfRef = useRef<PDFEVRef>(null);
 
-  const sourcePDF = Platform.OS === 'ios'
-  ? 'file://' + RNFS.MainBundlePath + '/example.pdf'
-  : 'file://' + RNFS.MainBundlePath + '/example.pdf';
+  const sourcePDF =
+    Platform.OS === 'ios'
+      ? 'file://' + RNFS.MainBundlePath + '/example.pdf'
+      : RNFS.ExternalDirectoryPath + '/book.pdf';
 
-  const sourceJPG = Platform.OS === 'ios'
-  ? RNFS.MainBundlePath + '/example.jpg'
-  : RNFS.MainBundlePath + '/example.jpg';  
+  // const sourceJPG =
+  //   Platform.OS === 'ios'
+  //     ? RNFS.MainBundlePath + '/example.jpg'
+  //     : RNFS.MainBundlePath + '/example.jpg';
 
   enum CanvasType {
     Image = 'image',
-    PDF = 'pdf'
+    PDF = 'pdf',
   }
 
   const options = {
@@ -27,7 +35,7 @@ export default function App() {
     isToolBarHidden: false,
     viewBackgroundColor: '#40a35f',
     lineColor: '#4287f5',
-    lineWidth: 40
+    lineWidth: 40,
   };
 
   const handleSavePDF = (e: string | null) => {
@@ -36,7 +44,7 @@ export default function App() {
     } else {
       console.log('got url:', e);
     }
-  };  
+  };
 
   const onPressUndo = () => {
     pdfRef.current?.undoAction();
@@ -52,7 +60,7 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.topView}>        
+      <View style={styles.topView}>
         <View style={styles.buttonContainer}>
           <TouchableOpacity style={styles.button} onPress={onPressUndo}>
             <Text style={styles.buttonText}>Undo</Text>

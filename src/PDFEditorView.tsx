@@ -50,7 +50,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       clearAction,
       saveAction,
     }));
-    const componentRef = useRef<PDFEVRef>(null);    
+    const componentRef = useRef<PDFEVRef>(null);
 
     const undoAction = () => {
       if (componentRef && componentRef.current) {
