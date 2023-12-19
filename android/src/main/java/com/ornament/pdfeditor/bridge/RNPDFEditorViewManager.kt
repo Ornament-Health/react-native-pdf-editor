@@ -15,9 +15,14 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
 
     override fun createViewInstance(reactContext: ThemedReactContext): PDFEditorView {
         return PDFEditorView(reactContext).apply {
-            onSavePDF { filePath ->
+            onSavePDF { urls ->
                 val event = Arguments.createMap()
-                event.putString("url", filePath)
+                val urlsArray = urls?.let {
+                    Arguments.createArray().apply {
+                        it.forEach { pushString(it) }
+                    }
+                }
+                event.putArray("url", urlsArray)
                 reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(
                     id,
                     "savePDF",

@@ -13,12 +13,20 @@ import androidx.annotation.ColorInt
 import com.itextpdf.kernel.colors.DeviceRgb
 import com.itextpdf.kernel.pdf.canvas.PdfCanvas
 import com.itextpdf.kernel.pdf.canvas.PdfCanvasConstants
+import com.ornament.pdfeditor.extenstions.div
 import com.ornament.pdfeditor.extenstions.minus
 import com.ornament.pdfeditor.extenstions.plus
 import com.ornament.pdfeditor.extenstions.times
 
-class BezierCurve(val pageIndex: Int, private val pageSize: SizeF, private val width: Float, @ColorInt private val color: Int) {
+class BezierCurve(private val width: Float, @ColorInt private val color: Int, ) {
     private val points = mutableListOf<PointF>()
+
+    var isClosed: Boolean = false
+        private set
+
+    fun close() {
+        isClosed = true
+    }
 
     fun drawOnCanvas(canvas: Canvas, paint: Paint, drawClip: RectF, actualScale: Float, alpha: Int = 255) {
         if (points.isEmpty()) return
@@ -53,9 +61,9 @@ class BezierCurve(val pageIndex: Int, private val pageSize: SizeF, private val w
         canvas.drawBitmap(bitmap, 0f, 0f, paint)
     }
 
-    fun drawOnPdfCanvas(pdfCanvas: PdfCanvas) {
+    fun drawOnPdfCanvas(pdfCanvas: PdfCanvas, pageSize: SizeF, scale: Float) {
         pdfCanvas.apply {
-            setLineWidth(width)
+            setLineWidth(width * scale)
             setLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND)
             val androidColor = Color.valueOf(color)
             setStrokeColor(DeviceRgb(
@@ -64,7 +72,7 @@ class BezierCurve(val pageIndex: Int, private val pageSize: SizeF, private val w
                 androidColor.blue(),
             ))
         }
-        val points = getAllPoints()
+        val points = getAllPoints().map { it * scale }
         pdfCanvas.moveTo(points.first().x.toDouble(), pageSize.height - points.first().y.toDouble())
         if (points.size < 3) {
             pdfCanvas.lineTo(points.last().x.toDouble(), pageSize.height -points.last().y.toDouble())
@@ -81,10 +89,9 @@ class BezierCurve(val pageIndex: Int, private val pageSize: SizeF, private val w
         pdfCanvas.stroke()
     }
 
-    fun addPoint(point: PointF, pageBounds: RectF) {
-        val offsetPoint = point - PointF(pageBounds.left, pageBounds.top)
-        val pageScale = pageSize.width / (pageBounds.right - pageBounds.left)
-        points.add(offsetPoint * pageScale)
+    fun addPoint(point: PointF, offset: PointF, scale: Float) {
+        val offsetPoint = point - offset
+        points.add(offsetPoint / scale)
     }
 
     private fun getAllPoints() : List<PointF> {
