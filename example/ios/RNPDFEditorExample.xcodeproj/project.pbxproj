@@ -12,7 +12,7 @@
 		13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB01A68108700A75B9A /* AppDelegate.mm */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		13B07FC11A68108700A75B9A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB71A68108700A75B9A /* main.m */; };
-		40FD119D2ABB3F25006A8373 /* example.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 40FD119C2ABB3F25006A8373 /* example.jpg */; };
+		40D380E72B4E9E9D00301622 /* example.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 40D380E62B4E9E9D00301622 /* example.jpg */; };
 		40FD119F2ABB3F45006A8373 /* example.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 40FD119E2ABB3F45006A8373 /* example.pdf */; };
 		7699B88040F8A987B510C191 /* libPods-RNPDFEditorExample-RNPDFEditorExampleTests.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 19F6CBCC0A4E27FBF8BF4A61 /* libPods-RNPDFEditorExample-RNPDFEditorExampleTests.a */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
@@ -40,7 +40,7 @@
 		13B07FB71A68108700A75B9A /* main.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = main.m; path = RNPDFEditorExample/main.m; sourceTree = "<group>"; };
 		19F6CBCC0A4E27FBF8BF4A61 /* libPods-RNPDFEditorExample-RNPDFEditorExampleTests.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-RNPDFEditorExample-RNPDFEditorExampleTests.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B4392A12AC88292D35C810B /* Pods-RNPDFEditorExample.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RNPDFEditorExample.debug.xcconfig"; path = "Target Support Files/Pods-RNPDFEditorExample/Pods-RNPDFEditorExample.debug.xcconfig"; sourceTree = "<group>"; };
-		40FD119C2ABB3F25006A8373 /* example.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = example.jpg; sourceTree = "<group>"; };
+		40D380E62B4E9E9D00301622 /* example.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = example.jpg; sourceTree = "<group>"; };
 		40FD119E2ABB3F45006A8373 /* example.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = example.pdf; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-RNPDFEditorExample.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RNPDFEditorExample.release.xcconfig"; path = "Target Support Files/Pods-RNPDFEditorExample/Pods-RNPDFEditorExample.release.xcconfig"; sourceTree = "<group>"; };
 		5B7EB9410499542E8C5724F5 /* Pods-RNPDFEditorExample-RNPDFEditorExampleTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RNPDFEditorExample-RNPDFEditorExampleTests.debug.xcconfig"; path = "Target Support Files/Pods-RNPDFEditorExample-RNPDFEditorExampleTests/Pods-RNPDFEditorExample-RNPDFEditorExampleTests.debug.xcconfig"; sourceTree = "<group>"; };
@@ -121,7 +121,7 @@
 			isa = PBXGroup;
 			children = (
 				40FD119E2ABB3F45006A8373 /* example.pdf */,
-				40FD119C2ABB3F25006A8373 /* example.jpg */,
+				40D380E62B4E9E9D00301622 /* example.jpg */,
 				13B07FAE1A68108700A75B9A /* RNPDFEditorExample */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				00E356EF1AD99517003FC87E /* RNPDFEditorExampleTests */,
@@ -248,9 +248,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				40FD119D2ABB3F25006A8373 /* example.jpg in Resources */,
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
+				40D380E72B4E9E9D00301622 /* example.jpg in Resources */,
 				40FD119F2ABB3F45006A8373 /* example.pdf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
