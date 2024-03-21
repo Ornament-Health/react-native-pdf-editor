@@ -42,23 +42,11 @@ class Document {
     switch type {
     case .image:
       guard let image = loadImage(fileURL: documentURL) else { return }
-
-      var resultImage = scaleImagePreservingAspectRatio(image, newWidth: newWidth)
-      if grayscale, let grayscaledImage = grayscale(resultImage) {
-        resultImage = grayscaledImage
-      }
-
-      if let fileNameWithExt = incomingPath.components(separatedBy: "/").last,
-         let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
-        let newPathComponent = fileNameRaw + "_" + "resized" + ".png"
-        let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
-
-        if let pngData = resultImage.pngData(), let _ = try? pngData.write(to: fileURL) {
-          completion([fileURL.absoluteString])
-        }
+      if let path = resizeImageAndSave(image, newWidth: newWidth, grayscale: grayscale) {
+        completion([path])
       }
     case .pdf:
-      convertToImagesAndSave(pdfURL: documentURL, newWidth: newWidth) { result in
+      convertToImagesAndSave(pdfURL: documentURL, newWidth: newWidth, grayscale: grayscale) { result in
         let resultNonOptional = result?.compactMap { $0 }
         completion(resultNonOptional)
       }
@@ -70,24 +58,25 @@ class Document {
 
 extension Document {
 
-  private func convertToImagesAndSave(pdfURL: URL, newWidth: CGFloat, completion: @escaping (([String?]?) -> Void)) {
-    guard let pdfDocument = PDFDocument(url: pdfURL),
+  private func convertToImagesAndSave(pdfURL: URL, newWidth: CGFloat, grayscale: Bool, completion: @escaping (([String?]?) -> Void)) {
+
+    guard let pdfDocumentCG = CGPDFDocument(pdfURL as CFURL),
+          let pdfDocument = PDFDocument(url: pdfURL),
           let fileNameWithExt = incomingPath.components(separatedBy: "/").last,
           let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first else {
       completion(nil)
       return
     }
     let documentsDirectoryURL = getDocumentsDirectory()
-    var outcomingPath: [String?] = .init(repeating: nil, count: pdfDocument.pageCount)
+    var outcomingPath: [String?] = .init(repeating: nil, count: pdfDocumentCG.numberOfPages)
 
-    let format = UIGraphicsImageRendererFormat()
-    format.scale = 1
-    format.preferredRange = .automatic
-
-    DispatchQueue.concurrentPerform(iterations: pdfDocument.pageCount) { [self] index in
+    DispatchQueue.concurrentPerform(iterations: pdfDocumentCG.numberOfPages) { index in
       autoreleasepool {
-        if let pdfPage = pdfDocument.page(at: index) {
-          let pdfPageSize = pdfPage.bounds(for: .mediaBox)
+
+        if let pdfPageCG = pdfDocumentCG.page(at: index + 1),
+           let pdfPage = pdfDocument.page(at: index){
+
+          var pdfPageSize = pdfPageCG.getBoxRect(CGPDFBox.mediaBox)
 
           let scaleFactor = newWidth / pdfPageSize.size.width
           let scaledImageSize = CGSize(
@@ -95,24 +84,31 @@ extension Document {
             height: pdfPageSize.size.height * scaleFactor
           )
 
-          let renderer = UIGraphicsImageRenderer(size: scaledImageSize, format: format)
-
-          var image = renderer.image { ctx in
-            UIColor.white.set()
-            ctx.fill(CGRect(x: 0, y: 0, width: scaledImageSize.width, height: scaledImageSize.height))
-            ctx.cgContext.translateBy(x: 0.0, y: scaledImageSize.height)
-            ctx.cgContext.scaleBy(x: scaleFactor, y: -scaleFactor)
-            pdfPage.draw(with: .mediaBox, to: ctx.cgContext)
+          guard let context = createCGContext(for: scaledImageSize, grayscale: grayscale) else {
+            completion(nil)
+            return
+          }
+          context.beginPage(mediaBox: &pdfPageSize)
+          context.interpolationQuality = .high
+          context.setFillColor(UIColor.white.cgColor)
+          context.fill(CGRect(x: 0, y: 0, width: scaledImageSize.width, height: scaledImageSize.height))
+          context.scaleBy(x: scaleFactor, y: scaleFactor)
+          context.drawPDFPage(pdfPageCG)
+          for annotation in pdfPage.annotations {
+            annotation.draw(with: .mediaBox, in: context)
+          }
+          context.endPage()
+          guard let cgImage = context.makeImage() else {
+            completion(nil)
+            return
           }
 
-          if grayscale, let grayscaledImage = grayscale(image) {
-            image = grayscaledImage
-          }
-
-          let newPathComponent = fileNameRaw + "_" + "\(index + 1)_" + "resized" + ".png"
+          let newPathComponent = fileNameRaw + "_" + "\(index + 1)_" + "resized" + ".jpeg"
           let fileURL = documentsDirectoryURL.appendingPathComponent(newPathComponent)
 
-          if let pngData = image.pngData(), let _ = try? pngData.write(to: fileURL) {
+          if let imageDestination = CGImageDestinationCreateWithURL(fileURL as CFURL, "public.jpeg" as CFString, 1, nil) {
+            CGImageDestinationAddImage(imageDestination, cgImage, nil)
+            CGImageDestinationFinalize(imageDestination)
             outcomingPath[index] = fileURL.absoluteString
           }
         }
@@ -132,37 +128,102 @@ extension Document {
     return nil
   }
 
-  private func grayscale(_ image: UIImage) -> UIImage? {
-    guard let filter = CIFilter(name: "CIPhotoEffectNoir") else { return nil }
+  private func createCGContext(for size: CGSize, grayscale: Bool) -> CGContext? {
+    let colorSpace = grayscale ?
+    CGColorSpaceCreateDeviceGray() :
+    CGColorSpaceCreateDeviceRGB()
+    let bitmapInfo = grayscale ?
+    CGImageAlphaInfo.none.rawValue :
+    CGImageAlphaInfo.premultipliedLast.rawValue
 
-    filter.setValue(CIImage(image: image), forKey: kCIInputImageKey)
-    
-    if let output = filter.outputImage {
-      return UIImage(ciImage: output)
-    }
-    return nil
+    return CGContext(data: nil,
+                     width: Int(size.width),
+                     height: Int(size.height),
+                     bitsPerComponent: 8,
+                     bytesPerRow: 0,
+                     space: colorSpace,
+                     bitmapInfo: bitmapInfo)
+
   }
 
-  private func scaleImagePreservingAspectRatio(_ image: UIImage, newWidth: CGFloat) -> UIImage {
+  private func createTransformMatrixForImage(_ image: UIImage, size: CGSize) -> CGAffineTransform {
+    var transform: CGAffineTransform = CGAffineTransform.identity
+
+    switch image.imageOrientation {
+    case .down, .downMirrored:
+      transform = transform.translatedBy(x: size.width, y: size.height)
+      transform = transform.rotated(by: CGFloat.pi)
+    case .left, .leftMirrored:
+      transform = transform.translatedBy(x: size.width, y: 0)
+      transform = transform.rotated(by: CGFloat.pi / 2.0)
+    case .right, .rightMirrored:
+      transform = transform.translatedBy(x: 0, y: size.height)
+      transform = transform.rotated(by: CGFloat.pi / -2.0)
+    case .up, .upMirrored:
+      break
+    @unknown default:
+      break
+    }
+
+    // Flip image one more time if needed to, this is to prevent flipped image
+    switch image.imageOrientation {
+    case .upMirrored, .downMirrored:
+      transform = transform.translatedBy(x: size.width, y: 0)
+      transform = transform.scaledBy(x: -1, y: 1)
+    case .leftMirrored, .rightMirrored:
+      transform = transform.translatedBy(x: size.height, y: 0)
+      transform = transform.scaledBy(x: -1, y: 1)
+    case .up, .down, .left, .right:
+      break
+    @unknown default:
+      break
+    }
+
+    return transform
+  }
+
+  func resizeImageAndSave(_ image: UIImage, newWidth: CGFloat, grayscale: Bool) -> String? {
+
+    guard let cgImage = image.cgImage else {
+      return nil
+    }
+
     let scaleFactor = newWidth / image.size.width
     let scaledImageSize = CGSize(
       width: newWidth,
       height: image.size.height * scaleFactor
     )
 
-    let format = UIGraphicsImageRendererFormat()
-    format.scale = 1
-    format.preferredRange = .automatic
-
-    let renderer = UIGraphicsImageRenderer(size: scaledImageSize, format: format)
-
-    let scaledImage = renderer.image { _ in
-      image.draw(in: CGRect(
-        origin: .zero,
-        size: scaledImageSize
-      ))
+    guard let context = createCGContext(for: scaledImageSize, grayscale: grayscale) else {
+      return nil
     }
-    return scaledImage
+
+    let transform = createTransformMatrixForImage(image, size: scaledImageSize)
+    context.concatenate(transform)
+
+    switch image.imageOrientation {
+    case .left, .leftMirrored, .right, .rightMirrored:
+      context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledImageSize.height, height: scaledImageSize.width))
+    default:
+      context.draw(cgImage, in: CGRect(x: 0, y: 0, width: scaledImageSize.width, height: scaledImageSize.height))
+      break
+    }
+
+    guard let cgImage = context.makeImage() else { return nil }
+
+    if let fileNameWithExt = incomingPath.components(separatedBy: "/").last,
+       let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
+
+      let newPathComponent = fileNameRaw + "_" + "resized" + ".jpeg"
+      let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
+
+      if let imageDestination = CGImageDestinationCreateWithURL(fileURL as CFURL, "public.jpeg" as CFString, 1, nil) {
+        CGImageDestinationAddImage(imageDestination, cgImage, nil)
+        CGImageDestinationFinalize(imageDestination)
+        return fileURL.absoluteString
+      }
+    }
+    return nil
   }
 
   private func getDocumentsDirectory() -> URL {
