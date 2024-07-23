@@ -6,24 +6,25 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.RectF
+import android.os.ParcelFileDescriptor
 import android.util.Size
 import android.util.SizeF
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.drawing.BezierCurve
-import com.radzivon.bartoshyk.avif.coder.HeifCoder
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.max
 import kotlin.math.min
 
-class ImageDocument(filePath: String) : Document() {
+class ImageDocument(
+    override val filename: String,
+    override val parcelFileDescriptor: ParcelFileDescriptor
+) : Document() {
 
     private lateinit var imageBitmap: Bitmap
     override lateinit var size: SizeF
     private var bounds: RectF? = null
     private val imageDrawing = mutableListOf<BezierCurve>()
-    private val fileName: String
 
     override fun save(outputDirectory: String, options: PDFEditorOptions): String {
         val pagePaint = Paint().apply {
@@ -56,7 +57,7 @@ class ImageDocument(filePath: String) : Document() {
         Canvas(copy).drawBitmap(drawingBitmap, 0f, 0f, Paint())
         val outputStream = ByteArrayOutputStream()
         copy.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-        val outputPath = "$outputDirectory/$fileName-edited.png"
+        val outputPath = "$outputDirectory/$filename-edited.png"
         FileOutputStream(outputPath).also { outputFileStream ->
             outputStream.writeTo(outputFileStream)
             outputFileStream.close()
@@ -66,15 +67,12 @@ class ImageDocument(filePath: String) : Document() {
     }
 
     init {
-        decodeImage(filePath)?.let { imageBitmap = it }
+        decodeImage()?.let { imageBitmap = it }
         size = with(imageBitmap) { SizeF(width.toFloat(), height.toFloat()) }
-        fileName = File(filePath).nameWithoutExtension
     }
 
-    private fun decodeImage(path: String): Bitmap? = if (path.lowercase().endsWith(".heic"))
-        HeifCoder().decode(File(path).readBytes())
-    else
-        BitmapFactory.decodeFile(path)
+    private fun decodeImage(): Bitmap? =
+        BitmapFactory.decodeFileDescriptor(parcelFileDescriptor.fileDescriptor)
 
 
     override fun render(

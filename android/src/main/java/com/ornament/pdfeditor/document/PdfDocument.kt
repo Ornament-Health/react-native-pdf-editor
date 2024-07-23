@@ -17,12 +17,15 @@ import com.itextpdf.kernel.pdf.canvas.PdfCanvas
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.drawing.BezierCurve
 import java.io.ByteArrayOutputStream
-import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import kotlin.math.max
 import kotlin.math.min
 
-class PdfDocument(filePath: String) : Document() {
+class PdfDocument(
+    override val filename: String,
+    override val parcelFileDescriptor: ParcelFileDescriptor
+) : Document() {
 
     companion object {
         private const val PAGE_MARGIN = 5f
@@ -38,7 +41,6 @@ class PdfDocument(filePath: String) : Document() {
     private val bitmapPages = mutableMapOf<Int, Bitmap>()
     private val boundsOfPages = mutableMapOf<Int, RectF>()
     private val pagesDrawing = mutableListOf<Pair<Int, BezierCurve>>()
-    private val fileName: String
 
 
     override fun save(outputDirectory: String, options: PDFEditorOptions): String {
@@ -54,7 +56,7 @@ class PdfDocument(filePath: String) : Document() {
             }
         }
         copy.close()
-        val outputPath = "$outputDirectory/$fileName-edited.pdf"
+        val outputPath = "$outputDirectory/$filename-edited.pdf"
         FileOutputStream(outputPath).also { outputFileStream ->
             outputStream.writeTo(outputFileStream)
             outputFileStream.close()
@@ -64,19 +66,13 @@ class PdfDocument(filePath: String) : Document() {
     }
 
     init {
-        pdfDocument = PdfDocument(PdfReader(filePath))
-        renderer = PdfRenderer(
-            ParcelFileDescriptor.open(
-                File(filePath),
-                ParcelFileDescriptor.MODE_READ_ONLY
-            )
-        )
+        pdfDocument = PdfDocument(PdfReader(FileInputStream(parcelFileDescriptor.fileDescriptor)))
+        renderer = PdfRenderer(parcelFileDescriptor)
         pageCount = renderer.pageCount
         currentPage?.close()
         currentPage = renderer.openPage(0)
         pageSize = with(currentPage!!) { SizeF(width.toFloat(), height.toFloat()) }
         size = with(currentPage!!) { SizeF(width.toFloat(), (height.toFloat() + PAGE_MARGIN) * renderer.pageCount - PAGE_MARGIN) }
-        fileName = File(filePath).nameWithoutExtension
     }
 
     override fun render(canvas: Canvas, scale: Float, offset: PointF, viewPortSize: Size, refresh: Boolean) {
