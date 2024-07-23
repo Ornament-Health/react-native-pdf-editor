@@ -25,7 +25,6 @@ interface RNComponentProps {
   style: ViewStyle;
   options: {
     filePath: string[];
-    canvasType: string;
     isToolBarHidden?: boolean;
     viewBackgroundColor?: string;
     lineColor?: string;

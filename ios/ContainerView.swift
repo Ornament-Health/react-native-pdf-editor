@@ -10,11 +10,6 @@ import UIKit
 @objc(ContainerView)
 class ContainerView: UIView {
 
-    enum CanvasType: String {
-        case pdf
-        case image
-    }
-
     @objc var pdfView: NonSelectablePDFView!
 
     @objc var options: [String: Any] = [:] {
@@ -28,8 +23,8 @@ class ContainerView: UIView {
 
     private var toolBarView: ToolBarView!
     private let pdfDrawer = PDFDrawer()
-    private var fileName = ""
-    private var canvasType: CanvasType = .pdf
+    private var filePaths = [String]()
+    private var documents = [RNPDFDocument]()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -79,26 +74,16 @@ class ContainerView: UIView {
 
     private func updateWithOptions(_ options: [String: Any]) {
 
-        if let canvasType = options["canvasType"] as? String {
-            if canvasType == CanvasType.pdf.rawValue {
-                self.canvasType = .pdf
-            } else if canvasType == CanvasType.image.rawValue {
-                self.canvasType = .image
+        if let arrayOfPaths = options["filePath"] as? [String] {
+            filePaths = arrayOfPaths
+            for (index, value) in filePaths.enumerated() {
+                if let document = RNPDFDocument(id: index, path: value) {
+                    documents.append(document)
+                }
             }
+            self.renderDocuments(for: documents)
         } else {
-            print("RNPDFEditor: \"fileName\" value is wrong")
-        }
-
-        if let fileName = options["fileName"] as? String {
-            self.fileName = fileName
-            switch canvasType {
-            case .image:
-                loadImage(for: fileName)
-            case .pdf:
-                loadPDF(for: fileName)
-            }
-        } else {
-            print("RNPDFEditor: \"fileName\" value is wrong")
+            print("RNPDFEditor: \"filePath\" value is wrong")
         }
 
         if let isHidden = options["isToolBarHidden"] as? Bool {
@@ -124,148 +109,135 @@ class ContainerView: UIView {
         } else {
             print("RNPDFEditor: \"lineWidth\" value is wrong")
         }
-
     }
 
-    private func loadPDF(for pathString: String) {
-        guard let url = URL(string: pathString) else {
-            print("RNPDFEditor: can't create URL from string")
+    private func renderDocuments(for documents: [RNPDFDocument]) {
+        if documents.isEmpty {
+            print("RNPDFEditor: documents is empty")
             return
         }
-        if let document = PDFDocument(url: url) {
-            self.pdfView.isHidden = false
-            self.pdfView.drawingDelegate = pdfDrawer
-            self.pdfView.document = document
-            self.pdfView.disableSelection(in: self.pdfView)
 
-            self.pdfDrawer.pdfView = pdfView
-        } else {
-            print("RNPDFEditor: can't create PDF document from URL")
+        let document = PDFDocument()
+        for item in documents {
+            item.convert { convertedDocument in
+                if let convertedDocument = convertedDocument {
+                    document.addPages(from: convertedDocument)
+                }
+            }
         }
+
+        self.pdfView.isHidden = false
+        self.pdfView.drawingDelegate = pdfDrawer
+        self.pdfView.document = document
+        self.pdfView.disableSelection(in: self.pdfView)
+
+        self.pdfDrawer.pdfView = pdfView
     }
 
-    private func loadImage(for pathString: String) {
-        let url = URL(fileURLWithPath: pathString)
-        if let imageData = try? Data(contentsOf: url), let image = UIImage(data: imageData) {
-            let document = PDFDocument()
-            let pdfPage = PDFPage(image: image)
-            document.insert(pdfPage!, at: 0)
-
-            self.pdfView.isHidden = false
-            self.pdfView.drawingDelegate = pdfDrawer
-            self.pdfView.document = document
-            self.pdfView.disableSelection(in: self.pdfView)
-
-            self.pdfDrawer.pdfView = pdfView
-        } else {
-            print("RNPDFEditor: can't create Image from URL")
-        }
-    }
-
-    private func savePDF() {
+    private func save() {
         guard let onSavePDF = self.onSavePDF else {
             print("RNPDFEditor: onSavePDF is nil, can't return value")
             return
         }
 
-        var params: [String : String?] = ["url" : nil]
+        var params: [String : [String]?] = ["url" : nil]
+        var resultArray = [String]()
+
+        var nextPageIndex = 0
 
         let today = Date()
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
 
-        if let fileNameWithExt = fileName.components(separatedBy: "/").last,
-           let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
-            let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".pdf"
-            let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
+        for item in documents {
+            let pages = item.pageCount
+            if item.type == .image {
 
-            guard let document = pdfView.document,
-                  let page = document.page(at: 0) else {
-                print("RNPDFEditor: PDF not writed locally")
-                onSavePDF(params as [AnyHashable : Any])
-                return
-            }
-            let bounds = page.bounds(for: .cropBox)
+                if let fileNameWithExt = item.incomingPath.components(separatedBy: "/").last,
+                   let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
 
-            let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
+                    let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".png"
+                    let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
 
-            let image = renderer.image { (context) in
-                context.cgContext.saveGState()
-                context.cgContext.translateBy(x: 0, y: bounds.height)
-                context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
-                page.draw(with: .mediaBox, to: context.cgContext)
-                context.cgContext.restoreGState()
-            }
+                    guard let document = pdfView.document,
+                          let page = document.page(at: nextPageIndex) else {
+                        print("RNPDFEditor: image with path \(item.incomingPath) not writed locally")
+                        break
+                    }
 
-            let newPage = PDFPage(image: image)!
+                    let bounds = page.bounds(for: .cropBox)
 
-            for annotation in page.annotations {
-                newPage.addAnnotation(annotation)
-            }
+                    let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
 
-            document.insert(newPage, at: 0)
-            document.removePage(at: 1)
+                    let image = renderer.image { (context) in
+                        context.cgContext.saveGState()
+                        context.cgContext.translateBy(x: 0, y: bounds.height)
+                        context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
+                        page.draw(with: .mediaBox, to: context.cgContext)
+                        context.cgContext.restoreGState()
+                    }
 
-            document.write(to: fileURL)
+                    if let data = image.pngData() {
+                        do {
+                            try data.write(to: fileURL)
+                        } catch {
+                            print("RNPDFEditor: can't create image for saving")
+                            break
+                        }
+                    }
+                    resultArray.append(fileURL.absoluteString)
 
-            params["url"] = fileURL.absoluteString
-            onSavePDF(params as [AnyHashable : Any])
-        } else {
-            print("RNPDFEditor: can't handle URL")
-            onSavePDF(params as [AnyHashable : Any])
-        }
-    }
+                } else {
+                    print("RNPDFEditor: can't handle URL")
+                    break
+                }
 
-    private func saveImage() {
-        guard let onSavePDF = self.onSavePDF else {
-            print("RNPDFEditor: error while saving image, onSavePDF is nil, can't return value")
-            return
-        }
+            } else {
+                if let fileNameWithExt = item.incomingPath.components(separatedBy: "/").last,
+                   let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
+                    let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".pdf"
+                    let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
 
-        var params: [String : String?] = ["url" : nil]
+                    guard let document = pdfView.document else {
+                        print("RNPDFEditor: PDF not writed locally")
+                        break
+                    }
 
-        let today = Date()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+                    let resultDocument = PDFDocument()
+                    var resultDocumentIndex = 0
+                    for index in nextPageIndex..<(nextPageIndex + item.pageCount) {
+                        guard let page = document.page(at: index) else {
+                            print("RNPDFEditor: PDF not writed locally")
+                            break
+                        }
+                        let bounds = page.bounds(for: .cropBox)
 
-        if let fileNameWithExt = fileName.components(separatedBy: "/").last,
-           let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
-            let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".png"
-            let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
+                        let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
 
-            guard let document = pdfView.document,
-                  let page = document.page(at: 0) else {
-                print("RNPDFEditor: image not writed locally")
-                onSavePDF(params as [AnyHashable : Any])
-                return
-            }
-            let bounds = page.bounds(for: .cropBox)
-
-            let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
-
-            let image = renderer.image { (context) in
-                context.cgContext.saveGState()
-                context.cgContext.translateBy(x: 0, y: bounds.height)
-                context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
-                page.draw(with: .mediaBox, to: context.cgContext)
-                context.cgContext.restoreGState()
-            }
-
-            if let data = image.pngData() {
-                do {
-                    try data.write(to: fileURL)
-                } catch {
-                    print("RNPDFEditor: can't create image for saving")
-                    onSavePDF(params as [AnyHashable : Any])
-                    return
+                        let image = renderer.image { (context) in
+                            context.cgContext.saveGState()
+                            context.cgContext.translateBy(x: 0, y: bounds.height)
+                            context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
+                            page.draw(with: .mediaBox, to: context.cgContext)
+                            context.cgContext.restoreGState()
+                        }
+                        
+                        if let newPage = PDFPage(image: image) {
+                            resultDocument.insert(newPage, at: resultDocumentIndex)
+                            resultDocumentIndex += 1
+                        }
+                    }
+                    resultDocument.write(to: fileURL)
+                    resultArray.append(fileURL.absoluteString)
+                } else {
+                    print("RNPDFEditor: can't handle URL")
                 }
             }
-            params["url"] = fileURL.absoluteString
-            onSavePDF(params as [AnyHashable : Any])
-        } else {
-            print("RNPDFEditor: can't handle URL")
-            onSavePDF(params as [AnyHashable : Any])
+            nextPageIndex += pages
         }
+
+        params["url"] = resultArray
+        onSavePDF(params as [AnyHashable : Any])
     }
 
     private func getDocumentsDirectory() -> URL {
@@ -286,6 +258,6 @@ extension ContainerView: ToolBarViewDelegate {
     }
 
     func saveButtonTapped() {
-        canvasType == .image ? self.saveImage() : self.savePDF()
+        self.save()
     }
 }
