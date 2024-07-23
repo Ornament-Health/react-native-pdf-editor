@@ -12,6 +12,9 @@
 		13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB01A68108700A75B9A /* AppDelegate.mm */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		13B07FC11A68108700A75B9A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB71A68108700A75B9A /* main.m */; };
+		405F8D932B9F732D00E0DB51 /* Document.swift in Sources */ = {isa = PBXBuildFile; fileRef = 405F8D922B9F732D00E0DB51 /* Document.swift */; };
+		405F8D952B9F76EB00E0DB51 /* DocumentsHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 405F8D942B9F76EB00E0DB51 /* DocumentsHandler.swift */; };
+		405F8D972B9F774B00E0DB51 /* DocumentsHandler.m in Sources */ = {isa = PBXBuildFile; fileRef = 405F8D962B9F774B00E0DB51 /* DocumentsHandler.m */; };
 		40FD119D2ABB3F25006A8373 /* example.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 40FD119C2ABB3F25006A8373 /* example.jpg */; };
 		40FD119F2ABB3F45006A8373 /* example.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 40FD119E2ABB3F45006A8373 /* example.pdf */; };
 		7699B88040F8A987B510C191 /* libPods-RNPDFEditorExample-RNPDFEditorExampleTests.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 19F6CBCC0A4E27FBF8BF4A61 /* libPods-RNPDFEditorExample-RNPDFEditorExampleTests.a */; };
@@ -40,6 +43,9 @@
 		13B07FB71A68108700A75B9A /* main.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = main.m; path = RNPDFEditorExample/main.m; sourceTree = "<group>"; };
 		19F6CBCC0A4E27FBF8BF4A61 /* libPods-RNPDFEditorExample-RNPDFEditorExampleTests.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-RNPDFEditorExample-RNPDFEditorExampleTests.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B4392A12AC88292D35C810B /* Pods-RNPDFEditorExample.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RNPDFEditorExample.debug.xcconfig"; path = "Target Support Files/Pods-RNPDFEditorExample/Pods-RNPDFEditorExample.debug.xcconfig"; sourceTree = "<group>"; };
+		405F8D922B9F732D00E0DB51 /* Document.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Document.swift; sourceTree = "<group>"; };
+		405F8D942B9F76EB00E0DB51 /* DocumentsHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentsHandler.swift; sourceTree = "<group>"; };
+		405F8D962B9F774B00E0DB51 /* DocumentsHandler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DocumentsHandler.m; sourceTree = "<group>"; };
 		40FD119C2ABB3F25006A8373 /* example.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = example.jpg; sourceTree = "<group>"; };
 		40FD119E2ABB3F45006A8373 /* example.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = example.pdf; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-RNPDFEditorExample.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RNPDFEditorExample.release.xcconfig"; path = "Target Support Files/Pods-RNPDFEditorExample/Pods-RNPDFEditorExample.release.xcconfig"; sourceTree = "<group>"; };
@@ -96,6 +102,9 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB71A68108700A75B9A /* main.m */,
+				405F8D922B9F732D00E0DB51 /* Document.swift */,
+				405F8D942B9F76EB00E0DB51 /* DocumentsHandler.swift */,
+				405F8D962B9F774B00E0DB51 /* DocumentsHandler.m */,
 			);
 			name = RNPDFEditorExample;
 			sourceTree = "<group>";
@@ -213,7 +222,7 @@
 						TestTargetID = 13B07F861A680F5B00A75B9A;
 					};
 					13B07F861A680F5B00A75B9A = {
-						LastSwiftMigration = 1120;
+						LastSwiftMigration = 1520;
 					};
 				};
 			};
@@ -420,8 +429,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				405F8D972B9F774B00E0DB51 /* DocumentsHandler.m in Sources */,
 				13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */,
+				405F8D952B9F76EB00E0DB51 /* DocumentsHandler.swift in Sources */,
 				13B07FC11A68108700A75B9A /* main.m in Sources */,
+				405F8D932B9F732D00E0DB51 /* Document.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -440,6 +452,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 5B7EB9410499542E8C5724F5 /* Pods-RNPDFEditorExample-RNPDFEditorExampleTests.debug.xcconfig */;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
@@ -467,6 +480,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 89C6BE57DB24E9ADA2F236DE /* Pods-RNPDFEditorExample-RNPDFEditorExampleTests.release.xcconfig */;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COPY_PHASE_STRIP = NO;
 				INFOPLIST_FILE = RNPDFEditorExampleTests/Info.plist;
