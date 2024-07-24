@@ -66,7 +66,10 @@ class PdfDocument(
     }
 
     init {
-        pdfDocument = PdfDocument(PdfReader(FileInputStream(parcelFileDescriptor.fileDescriptor)))
+        FileInputStream(parcelFileDescriptor.fileDescriptor).also { inputFileStream ->
+          pdfDocument = PdfDocument(PdfReader(inputFileStream))
+          inputFileStream.close()
+        }
         renderer = PdfRenderer(parcelFileDescriptor)
         pageCount = renderer.pageCount
         currentPage?.close()
