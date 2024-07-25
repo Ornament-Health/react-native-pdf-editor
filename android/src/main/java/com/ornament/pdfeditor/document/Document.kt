@@ -50,7 +50,7 @@ abstract class Document {
                     when (val scheme = uri.scheme) {
                         ContentResolver.SCHEME_FILE -> {
                             val file = uri.toFile()
-                            filename = file.name
+                            filename = file.nameWithoutExtension
                             Files.probeContentType(file.toPath())
                         }
 

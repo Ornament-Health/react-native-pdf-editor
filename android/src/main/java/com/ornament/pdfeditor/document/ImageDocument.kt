@@ -63,7 +63,7 @@ class ImageDocument(
             outputFileStream.close()
             outputStream.close()
         }
-        return outputPath
+        return "file://$outputPath"
     }
 
     init {
