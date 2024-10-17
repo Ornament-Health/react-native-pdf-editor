@@ -105,7 +105,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
         clearAction={clearAction}
         saveAction={saveAction}
         onSavePDF={(event: SyntheticEvent) =>
-          onSavePDF && onSavePDF(getURLString(event.nativeEvent))
+          onSavePDF?.(getURLString(event.nativeEvent))
         }
         {...props}
       />
