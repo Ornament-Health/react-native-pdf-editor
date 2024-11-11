@@ -48,7 +48,6 @@ class ContainerView: UIView {
         pdfView.displayDirection = .vertical
         pdfView.usePageViewController(false)
         pdfView.pageBreakMargins = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        pdfView.autoScales = true
         pdfView.isHidden = true
 
         let stackView = UIStackView(arrangedSubviews: [toolBarView, pdfView])
@@ -70,6 +69,8 @@ class ContainerView: UIView {
 
         self.pdfView = pdfView
         self.toolBarView = toolBarView
+      
+      print(self.pdfView.minScaleFactor)
     }
 
     private func updateWithOptions(_ options: [String: Any]) {

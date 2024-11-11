@@ -329,7 +329,7 @@ PODS:
   - React-jsinspector (0.71.7)
   - React-logger (0.71.7):
     - glog
-  - react-native-pdf-editor (0.1.0):
+  - react-native-pdf-editor (0.3.0):
     - React-Core
   - React-perflogger (0.71.7)
   - React-RCTActionSheet (0.71.7):
@@ -611,7 +611,7 @@ SPEC CHECKSUMS:
   React-jsiexecutor: eaa5f71eb8f6861cf0e57f1a0f52aeb020d9e18e
   React-jsinspector: 9885f6f94d231b95a739ef7bb50536fb87ce7539
   React-logger: 3f8ebad1be1bf3299d1ab6d7f971802d7395c7ef
-  react-native-pdf-editor: aafe921ffdd9350340647e2c1f63c18476b3453c
+  react-native-pdf-editor: f3d4429f988722983901d8c7568f0b5b80eba731
   React-perflogger: 2d505bbe298e3b7bacdd9e542b15535be07220f6
   React-RCTActionSheet: 0e96e4560bd733c9b37efbf68f5b1a47615892fb
   React-RCTAnimation: fd138e26f120371c87e406745a27535e2c8a04ef
@@ -632,4 +632,4 @@ SPEC CHECKSUMS:
 
 PODFILE CHECKSUM: 0c35e72c2e6b8420662087099b0a91cd44d03f67
 
-COCOAPODS: 1.12.1
+COCOAPODS: 1.15.2
