@@ -1,7 +1,7 @@
 //
 //  ContainerView.swift
 //  react-native-pdf-editor
-// 
+//
 
 import Foundation
 import PDFKit
@@ -21,10 +21,12 @@ class ContainerView: UIView {
     @objc var onSavePDF: RCTDirectEventBlock?
     @objc var onError: RCTDirectEventBlock?
 
-    private var toolBarView: ToolBarView!
     private let pdfDrawer = PDFDrawer()
     private var filePaths = [String]()
     private var documents = [RNPDFDocument]()
+    private var fileSwitcher: FileSwitcher!
+    private var currentDocumentIndex = 0
+    private var documentDrawings: [Int: [Any]] = [:]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -36,11 +38,6 @@ class ContainerView: UIView {
     }
 
     private func setupView() {
-        let toolBarView = ToolBarView()
-        toolBarView.translatesAutoresizingMaskIntoConstraints = false
-        toolBarView.delegate = self
-        toolBarView.isHidden = true
-
         let pdfView = NonSelectablePDFView()
         pdfView.backgroundColor = .lightGray
         pdfView.translatesAutoresizingMaskIntoConstraints = false
@@ -51,7 +48,12 @@ class ContainerView: UIView {
         pdfView.autoScales = true
         pdfView.isHidden = true
 
-        let stackView = UIStackView(arrangedSubviews: [toolBarView, pdfView])
+        let fileSwitcher = FileSwitcher()
+        fileSwitcher.translatesAutoresizingMaskIntoConstraints = false
+        fileSwitcher.delegate = self
+        fileSwitcher.isHidden = true
+
+        let stackView = UIStackView(arrangedSubviews: [pdfView, fileSwitcher])
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .vertical
         stackView.spacing = 0
@@ -62,14 +64,14 @@ class ContainerView: UIView {
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: self.safeAreaLayoutGuide.topAnchor),
             self.safeAreaLayoutGuide.bottomAnchor.constraint(equalTo: stackView.bottomAnchor),
-            toolBarView.heightAnchor.constraint(equalToConstant: 40),
+            fileSwitcher.heightAnchor.constraint(equalToConstant: 120),
 
             stackView.leadingAnchor.constraint(equalTo: self.safeAreaLayoutGuide.leadingAnchor),
             self.safeAreaLayoutGuide.trailingAnchor.constraint(equalTo: stackView.trailingAnchor)
         ])
 
         self.pdfView = pdfView
-        self.toolBarView = toolBarView
+        self.fileSwitcher = fileSwitcher
     }
 
     private func updateWithOptions(_ options: [String: Any]) {
@@ -86,14 +88,10 @@ class ContainerView: UIView {
             print("RNPDFEditor: \"filePath\" value is wrong")
         }
 
-        if let isHidden = options["isToolBarHidden"] as? Bool {
-            toolBarView.isHidden = isHidden
-        } else {
-            print("RNPDFEditor: \"isToolBarHidden\" value is wrong")
-        }
-
         if let pdfViewBackgroundColor = options["viewBackgroundColor"] as? String {
-            pdfView.backgroundColor  = UIColor(hexString: pdfViewBackgroundColor)
+            let backgroundColor = UIColor(hexString: pdfViewBackgroundColor)
+            pdfView.backgroundColor = backgroundColor
+            fileSwitcher.setBackgroundColor(backgroundColor)
         } else {
             print("RNPDFEditor: \"pdfViewBackgroundColor\" value is wrong")
         }
@@ -117,21 +115,33 @@ class ContainerView: UIView {
             return
         }
 
-        let document = PDFDocument()
-        for item in documents {
-            item.convert { convertedDocument in
-                if let convertedDocument = convertedDocument {
-                    document.addPages(from: convertedDocument)
-                }
+        fileSwitcher.configure(with: documents, selectedIndex: currentDocumentIndex)
+        fileSwitcher.isHidden = documents.count <= 1
+        
+        renderDocument(at: 0)
+    }
+
+    private func renderDocument(at index: Int) {
+        guard index >= 0 && index < documents.count else { return }
+        
+        currentDocumentIndex = index
+        let document = documents[index]
+        
+        document.convert { [weak self] convertedDocument in
+            guard let self = self, let convertedDocument = convertedDocument else { return }
+            
+            DispatchQueue.main.async {
+                self.pdfView.isHidden = false
+                self.pdfView.drawingDelegate = self.pdfDrawer
+                self.pdfView.document = convertedDocument
+                self.pdfView.disableSelection(in: self.pdfView)
+                
+                self.pdfDrawer.pdfView = self.pdfView
+                self.pdfDrawer.clear()
+                
+                self.fileSwitcher.selectFile(at: index)
             }
         }
-
-        self.pdfView.isHidden = false
-        self.pdfView.drawingDelegate = pdfDrawer
-        self.pdfView.document = document
-        self.pdfView.disableSelection(in: self.pdfView)
-
-        self.pdfDrawer.pdfView = pdfView
     }
 
     private func save() {
@@ -247,17 +257,24 @@ class ContainerView: UIView {
     }
 }
 
-extension ContainerView: ToolBarViewDelegate {
-
+extension ContainerView {
+    
     func undoButtonTapped() {
         pdfDrawer.undo()
     }
-
+    
     func clearButtonTapped() {
         pdfDrawer.clear()
     }
-
+    
     func saveButtonTapped() {
         self.save()
+    }
+}
+
+extension ContainerView: FileSwitcherDelegate {
+
+    func didSelectFile(at index: Int) {
+        renderDocument(at: index)
     }
 }

@@ -42,7 +42,7 @@ export default function App() {
       const results = await DocumentPicker.pick({
         allowMultiSelection: true,
         type: [DocTypes.images, DocTypes.pdf],
-        mode: 'import',
+        mode: 'open',
       });
 
       const resolvedPaths: string[] = [];
@@ -68,10 +68,9 @@ export default function App() {
     canvasType: selectedFiles.some((p) => p.toLowerCase().endsWith('.pdf'))
       ? CanvasType.PDF
       : CanvasType.Image,
-    isToolBarHidden: true,
-    viewBackgroundColor: '#40a35f',
-    lineColor: '#4287f5',
-    lineWidth: 40,
+    viewBackgroundColor: '#313131',
+    lineColor: '#ea1d54',
+    lineWidth: 20,
   };
 
   return (
@@ -124,7 +123,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: 60,
     paddingBottom: 24,
-    backgroundColor: '#F5FCFF',
+    backgroundColor: '#313131',
   },
   centerWrapper: {
     flex: 1,
@@ -132,7 +131,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   button: {
-    backgroundColor: '#1E6738',
+    backgroundColor: '#ea1d54',
     height: 40,
     borderRadius: 6,
     justifyContent: 'center',
