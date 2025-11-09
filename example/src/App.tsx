@@ -5,15 +5,15 @@ import DocumentPicker, {
 } from 'react-native-document-picker';
 import { PDFEditorView } from '@ornament-health/react-native-pdf-editor';
 
+enum CanvasType {
+  Image = 'image',
+  PDF = 'pdf',
+}
+
 type PDFEVRef = ComponentRef<typeof PDFEditorView>;
 
 export default function App() {
   const pdfRef = useRef<PDFEVRef>(null);
-
-  enum CanvasType {
-    Image = 'image',
-    PDF = 'pdf',
-  }
 
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 

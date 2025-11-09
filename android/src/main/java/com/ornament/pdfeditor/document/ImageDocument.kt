@@ -167,4 +167,11 @@ class ImageDocument(
     override fun addPointToDrawing(point: PointF, offset: PointF, scale: Float) {
         imageDrawing.lastOrNull()?.takeIf { !it.isClosed }?.addPoint(point, offset, scale)
     }
+
+    override fun dispose() {
+        if (::imageBitmap.isInitialized && !imageBitmap.isRecycled) {
+            imageBitmap.recycle()
+        }
+        super.dispose()
+    }
 }

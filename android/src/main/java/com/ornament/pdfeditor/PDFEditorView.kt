@@ -10,7 +10,6 @@ import android.util.Log
 import android.util.Size
 import android.view.LayoutInflater
 import android.view.MotionEvent
-import android.view.ViewTreeObserver.OnGlobalLayoutListener
 import androidx.constraintlayout.widget.ConstraintLayout
 import com.itextpdf.kernel.utils.XmlProcessorCreator
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
@@ -45,6 +44,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private lateinit var viewPort: Size
 
     private lateinit var options: PDFEditorOptions
+    private var pendingOptions: PDFEditorOptions? = null
 
     private val operationList = mutableListOf<Int>()
 
@@ -65,40 +65,47 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         }
     private var previousScale = scale
 
-    private var optionsHandled = false
     init {
         XmlProcessorCreator.setXmlParserFactory(XmlParserFactory())
         binding = ViewPdfEditorBinding.inflate(LayoutInflater.from(context), this, true)
-
-        val listener = object : OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                viewTreeObserver.removeOnGlobalLayoutListener(this)
-                viewPort = with(binding.root) { Size(width, height) }
-                if (!optionsHandled) setOptions(options)
-            }
-        }
-        viewTreeObserver.addOnGlobalLayoutListener(listener)
     }
 
     private fun reset() {
         scale = 1f
         movementDifference = PointF(0f, 0f)
+        operationList.clear()
         documents.forEach { it.reset() }
     }
 
     fun setOptions(options: PDFEditorOptions) {
+        pendingOptions = options
         this.options = options
-        if (!this::viewPort.isInitialized) {
-            optionsHandled = false
+        if (!this::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) {
             return
         }
-        optionsHandled = true
+        applyOptions(options, refresh = true)
+    }
+
+    private fun applyOptions(options: PDFEditorOptions, refresh: Boolean) {
+        if (!this::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
         background = ColorDrawable(options.backgroundColor)
-        options.filePaths?.let {
-            load(it)
+        val filePaths = options.filePaths
+        if (filePaths.isNullOrEmpty()) {
+            clearRenderedContent()
+            return
         }
-        reset()
-        render()
+        val shouldReload = documents.isEmpty() || currentFilePaths != filePaths
+        if (shouldReload) {
+            renderingJob?.cancel()
+            renderingJob = null
+            buildDocuments(filePaths)
+            reset()
+            centerDocuments()
+        } else {
+            recalculateDocumentLayout()
+        }
+        clampMovementDifference()
+        render(refresh || shouldReload)
     }
 
     private var onSavePDFAction: (paths: List<String>?) -> Unit = {}
@@ -143,25 +150,105 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         Log.d(ACTION_TAG, "CLEAR")
     }
 
-    private fun load(filePaths: List<String>) {
+    private fun buildDocuments(filePaths: List<String>) {
         currentFilePaths = filePaths
-        documents.clear()
-        val firstDocument = Document.create(filePaths.first()).also { documents.add(it) }
+        releaseDocuments()
+        if (filePaths.isEmpty()) {
+            documentsHeight = 0f
+            return
+        }
+
+        val firstDocument = Document.create(filePaths.first(), context.contentResolver).also { documents.add(it) }
         val documentsWidth = firstDocument.size.width
-        documentsHeight = firstDocument.size.height
+        var totalDocumentsHeight = firstDocument.size.height
         for (index in 1 until filePaths.size) {
-            val document = Document.create(filePaths[index]).also { documents.add(it) }
+            val document = Document.create(filePaths[index], context.contentResolver).also { documents.add(it) }
             val factor = documentsWidth / document.size.width
-            documentsHeight += document.size.height * factor
+            totalDocumentsHeight += document.size.height * factor
             document.minScale *= factor
         }
-        val additionalScale = min(documentsHeight / (viewPort.height.toFloat() - 2 * MARGIN), documentsWidth / ( viewPort.width.toFloat() - 2 * MARGIN))
-        documentsHeight = documentsHeight / additionalScale + MARGIN * (documents.size - 1)
+        val availableWidth = (viewPort.width.toFloat() - 2 * MARGIN).coerceAtLeast(1f)
+        val additionalScale = (documentsWidth / availableWidth).coerceAtLeast(0.0001f)
+        documentsHeight = totalDocumentsHeight / additionalScale + MARGIN * (documents.size - 1)
         documents.forEach { it.minScale /= additionalScale }
     }
 
+    private fun recalculateDocumentLayout() {
+        if (documents.isEmpty()) {
+            documentsHeight = 0f
+            return
+        }
+        val documentsWidth = documents.first().size.width
+        documents.first().minScale = 1f
+        var totalDocumentsHeight = documents.first().size.height
+        for (index in 1 until documents.size) {
+            val document = documents[index]
+            val factor = documentsWidth / document.size.width
+            totalDocumentsHeight += document.size.height * factor
+            document.minScale = factor
+        }
+        val availableWidth = (viewPort.width.toFloat() - 2 * MARGIN).coerceAtLeast(1f)
+        val additionalScale = (documentsWidth / availableWidth).coerceAtLeast(0.0001f)
+        documentsHeight = totalDocumentsHeight / additionalScale + MARGIN * (documents.size - 1)
+        documents.forEach { it.minScale /= additionalScale }
+    }
+
+    private fun clampMovementDifference() {
+        if (!::viewPort.isInitialized || documents.isEmpty()) {
+            movementDifference = PointF(0f, 0f)
+            return
+        }
+        val (minX, maxX) = boundsFor(contentWidth(), viewPort.width.toFloat())
+        val (minY, maxY) = boundsFor(contentHeight(), viewPort.height.toFloat())
+        movementDifference.x = movementDifference.x.coerceIn(minX, maxX)
+        movementDifference.y = movementDifference.y.coerceIn(minY, maxY)
+    }
+
+    private fun centerDocuments() {
+        if (!::viewPort.isInitialized || documents.isEmpty()) {
+            movementDifference = PointF(0f, 0f)
+            return
+        }
+        val (minX, maxX) = boundsFor(contentWidth(), viewPort.width.toFloat())
+        val (minY, maxY) = boundsFor(contentHeight(), viewPort.height.toFloat())
+        movementDifference.x = if (minX == maxX) minX else maxX
+        movementDifference.y = if (minY == maxY) minY else maxY
+    }
+
+    private fun contentWidth(): Float {
+        if (documents.isEmpty()) return 0f
+        return documents.first().size.width * documents.first().minScale * scale
+    }
+
+    private fun contentHeight(): Float {
+        if (documents.isEmpty()) return 0f
+        var totalHeight = 0f
+        documents.forEach { document ->
+            totalHeight += document.size.height * document.minScale
+        }
+        val gaps = (documents.size - 1).coerceAtLeast(0) * MARGIN * scale
+        return totalHeight * scale + gaps
+    }
+
+    private fun boundsFor(content: Float, container: Float): Pair<Float, Float> {
+        if (content <= 0f || container <= 0f) return 0f to 0f
+        val margin = MARGIN * scale
+        val total = content + margin * 2
+        return if (total <= container) {
+            val centered = (container - total) / 2f
+            centered to centered
+        } else {
+            val min = container - total
+            min to 0f
+        }
+    }
+
     private fun render(refresh: Boolean = false) {
-        if (!::viewPort.isInitialized) return
+        if (!::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
+        if (documents.isEmpty()) {
+            clearRenderedContent()
+            return
+        }
         renderingJob?.cancel()
         renderingJob = coroutineScope.launch {
             layerBitmap = Bitmap.createBitmap(
@@ -191,6 +278,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             )
         }
         binding.viewPort.setImageBitmap(bitmap)
+        binding.viewPort.invalidate()
+        invalidate()
     }
 
 
@@ -257,12 +346,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
                     //processing movement
                     movementDifference += difMove
-                    movementDifference.x = movementDifference.x
-                        .coerceAtLeast(viewPort.width - (with(documents.first()) { size.width * minScale } + MARGIN * 2) * scale)
-                        .coerceAtMost(0f)
-                    movementDifference.y = movementDifference.y
-                        .coerceAtMost(0f)
-                        .coerceAtLeast(viewPort.height - (documentsHeight + MARGIN * 2) * scale)
+                    clampMovementDifference()
                     render()
                     lastPoint = currentPoint
                     lastDifference = currentDifference
@@ -298,7 +382,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         documents.forEachIndexed { index, document ->
             if (document.contains(point)) {
                 currentDrawing = BezierCurve(
-                    options.lineWidth.toFloat() / scale,
+                    options.lineWidth.toFloat(),
                     options.lineColor
                 ).also {
                     document.addDrawing(point, it)
@@ -321,6 +405,57 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             }
             offset.y += document.size.height * scale * document.minScale + MARGIN * scale
         }
+    }
+
+    private fun clearRenderedContent() {
+        renderingJob?.cancel()
+        renderingJob = null
+        releaseDocuments()
+        currentFilePaths = emptyList()
+        movementDifference = PointF(0f, 0f)
+        if (::layerBitmap.isInitialized && !layerBitmap.isRecycled) {
+            layerBitmap.recycle()
+        }
+        layerBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        binding.viewPort.setImageBitmap(null)
+        binding.viewPort.invalidate()
+        invalidate()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w <= 0 || h <= 0) return
+        viewPort = Size(w, h)
+        pendingOptions?.let {
+            applyOptions(it, refresh = true)
+        } ?: run {
+            if (documents.isNotEmpty()) {
+                recalculateDocumentLayout()
+                clampMovementDifference()
+                render(true)
+            }
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        renderingJob?.cancel()
+        renderingJob = null
+        releaseDocuments()
+        currentFilePaths = emptyList()
+        pendingOptions = null
+    }
+
+    private fun releaseDocuments() {
+        documents.forEach {
+            try {
+                it.dispose()
+            } catch (_: Exception) {
+            }
+        }
+        documents.clear()
+        operationList.clear()
+        documentsHeight = 0f
     }
 
 }

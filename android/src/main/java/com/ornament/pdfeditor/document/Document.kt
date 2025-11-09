@@ -41,6 +41,13 @@ abstract class Document {
 
     abstract fun clear()
 
+    open fun dispose() {
+        try {
+            parcelFileDescriptor.close()
+        } catch (_: Exception) {
+        }
+    }
+
     companion object {
 
         fun create(documentUrl: String, contentResolver: ContentResolver) =

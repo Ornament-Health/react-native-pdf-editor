@@ -18,7 +18,7 @@ import com.ornament.pdfeditor.extenstions.minus
 import com.ornament.pdfeditor.extenstions.plus
 import com.ornament.pdfeditor.extenstions.times
 
-class BezierCurve(private val width: Float, @ColorInt private val color: Int, ) {
+class BezierCurve(private val baseWidth: Float, @ColorInt private val color: Int) {
     private val points = mutableListOf<PointF>()
 
     var isClosed: Boolean = false
@@ -30,7 +30,7 @@ class BezierCurve(private val width: Float, @ColorInt private val color: Int, ) 
 
     fun drawOnCanvas(canvas: Canvas, paint: Paint, drawClip: RectF, actualScale: Float, alpha: Int = 255) {
         if (points.isEmpty()) return
-        paint.strokeWidth = width * actualScale
+        paint.strokeWidth = baseWidth * actualScale
         paint.alpha = alpha
         val offset = PointF(drawClip.left, drawClip.top)
         val path = Path()
@@ -63,7 +63,7 @@ class BezierCurve(private val width: Float, @ColorInt private val color: Int, ) 
 
     fun drawOnPdfCanvas(pdfCanvas: PdfCanvas, pageSize: SizeF, scale: Float) {
         pdfCanvas.apply {
-            setLineWidth(width * scale)
+            setLineWidth(baseWidth * scale)
             setLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND)
             val androidColor = Color.valueOf(color)
             setStrokeColor(DeviceRgb(

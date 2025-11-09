@@ -212,4 +212,20 @@ class PdfDocument(
             it.second.addPoint(point, pageOffset, scale)
         }
     }
+
+    override fun dispose() {
+        try {
+            currentPage?.close()
+        } catch (_: Exception) {
+        }
+        try {
+            renderer.close()
+        } catch (_: Exception) {
+        }
+        try {
+            pdfDocument.close()
+        } catch (_: Exception) {
+        }
+        super.dispose()
+    }
 }
