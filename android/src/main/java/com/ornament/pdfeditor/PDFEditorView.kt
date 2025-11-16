@@ -11,6 +11,9 @@ import android.util.Size
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.view.isGone
+import androidx.core.view.isVisible
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.itextpdf.kernel.utils.XmlProcessorCreator
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.databinding.ViewPdfEditorBinding
@@ -19,6 +22,8 @@ import com.ornament.pdfeditor.drawing.BezierCurve
 import com.ornament.pdfeditor.extenstions.minus
 import com.ornament.pdfeditor.extenstions.plus
 import com.ornament.pdfeditor.extenstions.times
+import com.ornament.pdfeditor.preview.DocumentPreviewAdapter
+import com.ornament.pdfeditor.preview.DocumentPreviewItem
 import com.ornament.pdfeditor.utils.XmlParserFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +48,12 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private val binding: ViewPdfEditorBinding
     private lateinit var viewPort: Size
 
+    private val previewAdapter = DocumentPreviewAdapter(::onPreviewSelected)
+    private val previewWidthPx = (context.resources.displayMetrics.density * 80f).toInt().coerceAtLeast(1)
+    private val previewHeightPx = (context.resources.displayMetrics.density * 96f).toInt().coerceAtLeast(1)
+    private val documentPreviews = mutableListOf<DocumentPreviewItem>()
+    private var activeDocumentIndex = 0
+
     private lateinit var options: PDFEditorOptions
     private var pendingOptions: PDFEditorOptions? = null
 
@@ -54,7 +65,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private lateinit var layerBitmap: Bitmap
 
     private val documents = mutableListOf<Document>()
-    private var documentsHeight = 0f
 
     private val coroutineScope = CoroutineScope(Dispatchers.Main)
     private var renderingJob: Job? = null
@@ -68,6 +78,14 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     init {
         XmlProcessorCreator.setXmlParserFactory(XmlParserFactory())
         binding = ViewPdfEditorBinding.inflate(LayoutInflater.from(context), this, true)
+        binding.previewList.apply {
+            layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
+            adapter = previewAdapter
+            setHasFixedSize(true)
+        }
+        binding.viewPort.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateViewPortSize()
+        }
     }
 
     private fun reset() {
@@ -75,6 +93,24 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         movementDifference = PointF(0f, 0f)
         operationList.clear()
         documents.forEach { it.reset() }
+    }
+
+    private fun updateViewPortSize() {
+        val width = binding.viewPort.width
+        val height = binding.viewPort.height
+        if (width <= 0 || height <= 0) return
+        val shouldUpdate = !this::viewPort.isInitialized || viewPort.width != width || viewPort.height != height
+        if (!shouldUpdate) return
+        viewPort = Size(width, height)
+        pendingOptions?.let {
+            applyOptions(it, refresh = true)
+        } ?: run {
+            if (documents.isNotEmpty()) {
+                recalculateDocumentLayout()
+                clampMovementDifference()
+                render(true)
+            }
+        }
     }
 
     fun setOptions(options: PDFEditorOptions) {
@@ -100,7 +136,9 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             renderingJob = null
             buildDocuments(filePaths)
             reset()
+            activeDocumentIndex = 0
             centerDocuments()
+            prepareDocumentPreviews()
         } else {
             recalculateDocumentLayout()
         }
@@ -154,43 +192,63 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         currentFilePaths = filePaths
         releaseDocuments()
         if (filePaths.isEmpty()) {
-            documentsHeight = 0f
             return
         }
-
-        val firstDocument = Document.create(filePaths.first(), context.contentResolver).also { documents.add(it) }
-        val documentsWidth = firstDocument.size.width
-        var totalDocumentsHeight = firstDocument.size.height
-        for (index in 1 until filePaths.size) {
-            val document = Document.create(filePaths[index], context.contentResolver).also { documents.add(it) }
-            val factor = documentsWidth / document.size.width
-            totalDocumentsHeight += document.size.height * factor
-            document.minScale *= factor
+        filePaths.forEach { path ->
+            Document.create(path, context.contentResolver).also { documents.add(it) }
         }
-        val availableWidth = (viewPort.width.toFloat() - 2 * MARGIN).coerceAtLeast(1f)
-        val additionalScale = (documentsWidth / availableWidth).coerceAtLeast(0.0001f)
-        documentsHeight = totalDocumentsHeight / additionalScale + MARGIN * (documents.size - 1)
-        documents.forEach { it.minScale /= additionalScale }
+        recalculateDocumentLayout()
     }
 
     private fun recalculateDocumentLayout() {
-        if (documents.isEmpty()) {
-            documentsHeight = 0f
-            return
-        }
-        val documentsWidth = documents.first().size.width
-        documents.first().minScale = 1f
-        var totalDocumentsHeight = documents.first().size.height
-        for (index in 1 until documents.size) {
-            val document = documents[index]
-            val factor = documentsWidth / document.size.width
-            totalDocumentsHeight += document.size.height * factor
-            document.minScale = factor
-        }
+        if (!this::viewPort.isInitialized || viewPort.width == 0) return
         val availableWidth = (viewPort.width.toFloat() - 2 * MARGIN).coerceAtLeast(1f)
-        val additionalScale = (documentsWidth / availableWidth).coerceAtLeast(0.0001f)
-        documentsHeight = totalDocumentsHeight / additionalScale + MARGIN * (documents.size - 1)
-        documents.forEach { it.minScale /= additionalScale }
+        documents.forEach { document ->
+            val minScale = (availableWidth / document.size.width).coerceAtLeast(0.0001f)
+            document.minScale = minScale
+        }
+    }
+
+    private fun prepareDocumentPreviews() {
+        recycleDocumentPreviews()
+
+        documents.forEachIndexed { index, document ->
+            val thumbnail = document.generateThumbnail(previewWidthPx, previewHeightPx)
+            if (thumbnail == null) {
+                Log.w("RNPDFEditor", "Thumbnail is null for index=$index type=${document.javaClass.simpleName}")
+            }
+            documentPreviews.add(DocumentPreviewItem(index, thumbnail))
+        }
+        previewAdapter.submit(documentPreviews.toList(), activeDocumentIndex)
+        binding.previewList.isVisible = true
+        // Center previews if they fit
+        val itemWidthDp = 88 + 12 // width + marginEnd
+        val totalWidthDp = documents.size * itemWidthDp - 12 // subtract last margin
+        val density = resources.displayMetrics.density
+        val totalWidthPx = (totalWidthDp * density).toInt()
+        val screenWidth = resources.displayMetrics.widthPixels
+        if (totalWidthPx < screenWidth) {
+            val paddingPx = (screenWidth - totalWidthPx) / 2
+            binding.previewList.setPadding(paddingPx, binding.previewList.paddingTop, paddingPx, binding.previewList.paddingBottom)
+        } else {
+            binding.previewList.setPadding((16 * density).toInt(), binding.previewList.paddingTop, (16 * density).toInt(), binding.previewList.paddingBottom)
+        }
+    }
+
+    private fun recycleDocumentPreviews() {
+        previewAdapter.submit(emptyList(), 0)
+        documentPreviews.forEach { it.thumbnail?.recycle() }
+        documentPreviews.clear()
+    }
+
+    private fun onPreviewSelected(index: Int) {
+        if (index == activeDocumentIndex || index !in documents.indices) return
+        activeDocumentIndex = index
+        scale = 1f
+        movementDifference = PointF(0f, 0f)
+        centerDocuments()
+        previewAdapter.updateSelection(index)
+        render(true)
     }
 
     private fun clampMovementDifference() {
@@ -216,18 +274,13 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
 
     private fun contentWidth(): Float {
-        if (documents.isEmpty()) return 0f
-        return documents.first().size.width * documents.first().minScale * scale
+        val document = documents.getOrNull(activeDocumentIndex) ?: return 0f
+        return document.size.width * document.minScale * scale
     }
 
     private fun contentHeight(): Float {
-        if (documents.isEmpty()) return 0f
-        var totalHeight = 0f
-        documents.forEach { document ->
-            totalHeight += document.size.height * document.minScale
-        }
-        val gaps = (documents.size - 1).coerceAtLeast(0) * MARGIN * scale
-        return totalHeight * scale + gaps
+        val document = documents.getOrNull(activeDocumentIndex) ?: return 0f
+        return document.size.height * document.minScale * scale
     }
 
     private fun boundsFor(content: Float, container: Float): Pair<Float, Float> {
@@ -245,7 +298,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
     private fun render(refresh: Boolean = false) {
         if (!::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
-        if (documents.isEmpty()) {
+        val document = documents.getOrNull(activeDocumentIndex)
+        if (document == null) {
             clearRenderedContent()
             return
         }
@@ -258,25 +312,20 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             )
             val canvas = Canvas(layerBitmap)
             val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
-            documents.forEach {
-                it.render(canvas, scale, offset, viewPort, refresh)
-                offset.y += it.size.height * scale * it.minScale + MARGIN * scale
-            }
-            renderDrawing()
+            document.render(canvas, scale, offset, viewPort, refresh)
+            renderDrawing(document)
         }
     }
 
-    private fun renderDrawing() {
+    private fun renderDrawing(document: Document) {
         val bitmap = layerBitmap.copy(Bitmap.Config.ARGB_8888, true)
-        documents.forEach {
-            it.renderDrawing(
-                bitmap,
-                scale,
-                viewPort,
-                options.lineColor,
-                options.lineWidth
-            )
-        }
+        document.renderDrawing(
+            bitmap,
+            scale,
+            viewPort,
+            options.lineColor,
+            options.lineWidth
+        )
         binding.viewPort.setImageBitmap(bitmap)
         binding.viewPort.invalidate()
         invalidate()
@@ -378,33 +427,23 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     )
 
     private fun addShape(point: PointF) {
-        val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
-        documents.forEachIndexed { index, document ->
-            if (document.contains(point)) {
-                currentDrawing = BezierCurve(
-                    options.lineWidth.toFloat(),
-                    options.lineColor
-                ).also {
-                    document.addDrawing(point, it)
-                }
-                operationList.add(index)
-                return@forEachIndexed
-            }
-            offset.y += document.size.height * scale * document.minScale + MARGIN * scale
+        val document = documents.getOrNull(activeDocumentIndex) ?: return
+        if (!document.contains(point)) return
+        currentDrawing = BezierCurve(
+            options.lineWidth.toFloat(),
+            options.lineColor
+        ).also {
+            document.addDrawing(point, it)
         }
-
+        operationList.add(activeDocumentIndex)
     }
 
     private fun drawOnDocuments(point: PointF) {
+        val document = documents.getOrNull(activeDocumentIndex) ?: return
+        if (!document.contains(point)) return
         val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
-        documents.forEach { document ->
-            if (document.contains(point)) {
-                document.addPointToDrawing(point,offset, scale)
-                renderDrawing()
-                return@forEach
-            }
-            offset.y += document.size.height * scale * document.minScale + MARGIN * scale
-        }
+        document.addPointToDrawing(point, offset, scale)
+        renderDrawing(document)
     }
 
     private fun clearRenderedContent() {
@@ -424,17 +463,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (w <= 0 || h <= 0) return
-        viewPort = Size(w, h)
-        pendingOptions?.let {
-            applyOptions(it, refresh = true)
-        } ?: run {
-            if (documents.isNotEmpty()) {
-                recalculateDocumentLayout()
-                clampMovementDifference()
-                render(true)
-            }
-        }
+        updateViewPortSize()
     }
 
     override fun onDetachedFromWindow() {
@@ -455,7 +484,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         }
         documents.clear()
         operationList.clear()
-        documentsHeight = 0f
+        activeDocumentIndex = 0
+        recycleDocumentPreviews()
     }
 
 }

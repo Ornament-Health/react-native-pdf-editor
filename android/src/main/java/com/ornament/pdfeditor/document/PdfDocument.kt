@@ -206,6 +206,31 @@ class PdfDocument(
         pagesDrawing.clear()
     }
 
+    override fun generateThumbnail(maxWidth: Int, maxHeight: Int): Bitmap? {
+        if (maxWidth <= 0 || maxHeight <= 0 || pageCount <= 0) return null
+        return try {
+            currentPage?.close()
+            val page = renderer.openPage(0)
+            val width = page.width
+            val height = page.height
+            val scale = min(
+                maxWidth / width.toFloat(),
+                maxHeight / height.toFloat()
+            ).coerceAtLeast(0.0001f)
+            val bitmapWidth = (width * scale).toInt().coerceAtLeast(1)
+            val bitmapHeight = (height * scale).toInt().coerceAtLeast(1)
+            val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+            Canvas(bitmap).drawColor(Color.WHITE)
+            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            page.close()
+            currentPage = null
+            bitmap
+        } catch (error: Exception) {
+            android.util.Log.e("RNPDFEditor", "Failed to generate PDF thumbnail", error)
+            null
+        }
+    }
+
     override fun addPointToDrawing(point: PointF, offset: PointF, scale: Float) {
         pagesDrawing.firstOrNull { !it.second.isClosed }?.let {
             val pageOffset = PointF(boundsOfPages[it.first]?.left ?: 0f, boundsOfPages[it.first]?.top ?: 0f)

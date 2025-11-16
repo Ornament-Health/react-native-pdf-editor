@@ -164,6 +164,19 @@ class ImageDocument(
         imageDrawing.clear()
     }
 
+    override fun generateThumbnail(maxWidth: Int, maxHeight: Int): Bitmap? {
+        if (!::imageBitmap.isInitialized || maxWidth <= 0 || maxHeight <= 0) return null
+        val aspectRatio = imageBitmap.width.toFloat() / imageBitmap.height.toFloat()
+        var targetWidth = maxWidth
+        var targetHeight = (targetWidth / aspectRatio).toInt()
+        if (targetHeight > maxHeight) {
+            targetHeight = maxHeight
+            targetWidth = (targetHeight * aspectRatio).toInt()
+        }
+        if (targetWidth <= 0 || targetHeight <= 0) return null
+        return Bitmap.createScaledBitmap(imageBitmap, targetWidth, targetHeight, true)
+    }
+
     override fun addPointToDrawing(point: PointF, offset: PointF, scale: Float) {
         imageDrawing.lastOrNull()?.takeIf { !it.isClosed }?.addPoint(point, offset, scale)
     }

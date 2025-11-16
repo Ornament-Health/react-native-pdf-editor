@@ -41,6 +41,8 @@ abstract class Document {
 
     abstract fun clear()
 
+    open fun generateThumbnail(maxWidth: Int, maxHeight: Int): Bitmap? = null
+
     open fun dispose() {
         try {
             parcelFileDescriptor.close()

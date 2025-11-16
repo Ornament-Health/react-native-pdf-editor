@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="88dp"
+    android:layout_height="104dp"
+    android:layout_marginEnd="12dp">
+
+    <ImageView
+        android:id="@+id/thumbnail"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:background="@drawable/bg_preview_placeholder"
+        android:contentDescription="@string/pdfeditor_preview_content_description"
+        android:clipToOutline="true"
+        android:outlineProvider="background" />
+
+    <View
+        android:id="@+id/selection_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_preview_selected"
+        android:visibility="gone" />
+
+</FrameLayout>
