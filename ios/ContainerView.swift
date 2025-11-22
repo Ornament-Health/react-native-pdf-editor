@@ -51,7 +51,6 @@ class ContainerView: UIView {
         let fileSwitcher = FileSwitcher()
         fileSwitcher.translatesAutoresizingMaskIntoConstraints = false
         fileSwitcher.delegate = self
-        fileSwitcher.isHidden = true
 
         let stackView = UIStackView(arrangedSubviews: [pdfView, fileSwitcher])
         stackView.translatesAutoresizingMaskIntoConstraints = false
@@ -116,7 +115,6 @@ class ContainerView: UIView {
         }
 
         fileSwitcher.configure(with: documents, selectedIndex: currentDocumentIndex)
-        fileSwitcher.isHidden = documents.count <= 1
         
         renderDocument(at: 0)
     }
@@ -135,6 +133,7 @@ class ContainerView: UIView {
                 self.pdfView.drawingDelegate = self.pdfDrawer
                 self.pdfView.document = convertedDocument
                 self.pdfView.disableSelection(in: self.pdfView)
+                self.pdfView.autoScales = true
                 
                 self.pdfDrawer.pdfView = self.pdfView
                 self.pdfDrawer.clear()

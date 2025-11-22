@@ -1,5 +1,11 @@
 import React, { ComponentRef, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  SafeAreaView,
+} from 'react-native';
 import DocumentPicker, {
   types as DocTypes,
 } from 'react-native-document-picker';
@@ -74,7 +80,7 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {selectedFiles.length > 0 ? (
         <>
           <PDFEditorView
@@ -114,15 +120,13 @@ export default function App() {
           </TouchableOpacity>
         </View>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 60,
-    paddingBottom: 24,
     backgroundColor: '#313131',
   },
   centerWrapper: {

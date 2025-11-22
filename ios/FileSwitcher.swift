@@ -75,10 +75,7 @@ class FileSwitcher: UIView {
         thumbnailButtons.forEach { $0.removeFromSuperview() }
         thumbnailButtons.removeAll()
         
-        // Hide if only one document
-        isHidden = documents.count <= 1
-        
-        guard documents.count > 1 else { return }
+        guard !documents.isEmpty else { return }
         
         for (index, document) in documents.enumerated() {
             let button = createThumbnailButton(for: document, at: index)
@@ -91,7 +88,7 @@ class FileSwitcher: UIView {
     }
     
     private func updateCenteringIfNeeded() {
-        guard documents.count > 1 else { return }
+        guard !documents.isEmpty else { return }
         
         let buttonWidth: CGFloat = 80
         let spacing: CGFloat = 10
