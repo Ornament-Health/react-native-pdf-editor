@@ -36,6 +36,10 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 class PDFEditorView(context: Context) : ConstraintLayout(context) {
+    private var editMode: Boolean = false
+    fun setEditMode(isEdit: Boolean) {
+        editMode = isEdit
+    }
 
     companion object {
         private const val ACTION_TAG = "ACTION"
@@ -342,8 +346,12 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                startShapeOnPoint = PointF(event.x, event.y)
-                render()
+                if (editMode) {
+                    startShapeOnPoint = PointF(event.x, event.y)
+                    render()
+                } else {
+                    startShapeOnPoint = null
+                }
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -371,10 +379,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                     lastPoint = currentPoint
                     return true
                 }
-                startShapeOnPoint?.let {
-                    addShape(it)
-                    startShapeOnPoint = null
-                }
                 if (event.pointerCount == 2) {
                     currentPoint = PointF(
                         (event.getX(0) + event.getX(1)) / 2,
@@ -400,9 +404,21 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
                     render()
                     lastPoint = currentPoint
                     lastDifference = currentDifference
-                } else if (!isAfterScale) drawOnDocuments(currentPoint)
-
-
+                } else {
+                    if (editMode) {
+                        startShapeOnPoint?.let {
+                            addShape(it)
+                            startShapeOnPoint = null
+                        }
+                        if (!isAfterScale) drawOnDocuments(currentPoint)
+                    } else {
+                        val difMove = currentPoint - (lastPoint ?: currentPoint)
+                        movementDifference += difMove
+                        clampMovementDifference()
+                        render()
+                        lastPoint = currentPoint
+                    }
+                }
             }
 
             MotionEvent.ACTION_POINTER_UP -> {

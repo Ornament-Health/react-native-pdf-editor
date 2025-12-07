@@ -35,11 +35,10 @@ interface ExtRef {
   undoAction(): void;
   clearAction(): void;
   saveAction(): void;
+  setEditMode(isEdit: boolean): void;
 }
 
-interface RNComponentManagerProps
-  extends Omit<RNComponentProps, 'onSavePDF'>,
-    ExtRef {
+interface RNComponentManagerProps extends Omit<RNComponentProps, 'onSavePDF'> {
   onSavePDF(event: SyntheticEvent): void;
 }
 
@@ -57,8 +56,22 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       undoAction,
       clearAction,
       saveAction,
+      setEditMode,
     }));
     const componentRef = useRef<PDFEVRef>(null);
+
+    const setEditMode = (isEdit: boolean) => {
+      if (componentRef && componentRef.current) {
+        UIManager.dispatchViewManagerCommand(
+          findNodeHandle(componentRef.current),
+          Platform.OS === 'ios'
+            ? (UIManager.getViewManagerConfig(ComponentName).Commands
+                .setEditMode as number)
+            : 'setEditMode',
+          [isEdit]
+        );
+      }
+    };
 
     const undoAction = () => {
       if (componentRef && componentRef.current) {
@@ -110,9 +123,6 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       <RNComponentViewManager
         ref={componentRef}
         options={mergedOptions}
-        undoAction={undoAction}
-        clearAction={clearAction}
-        saveAction={saveAction}
         onSavePDF={(event: SyntheticEvent) =>
           onSavePDF?.(getURLString(event.nativeEvent))
         }

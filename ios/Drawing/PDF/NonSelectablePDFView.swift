@@ -12,6 +12,10 @@ class NonSelectablePDFView: PDFView {
     weak var drawingDelegate: DrawingGestureRecognizerDelegate?
     private var pan: UIPanGestureRecognizer?
 
+    func setDrawingEnabled(_ isEnabled: Bool) {
+        pan?.isEnabled = isEnabled
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
 

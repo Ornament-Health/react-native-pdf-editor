@@ -20,6 +20,7 @@ export default function App() {
   const pdfRef = useRef<PDFEVRef>(null);
 
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   const handleSavePDF = (e: string[] | null) => {
     if (e === null) {
@@ -39,6 +40,12 @@ export default function App() {
 
   const onPressSave = () => {
     pdfRef.current?.saveAction();
+  };
+
+  const onPressToggleMode = () => {
+    const newMode = !isEditMode;
+    setIsEditMode(newMode);
+    pdfRef.current?.setEditMode(newMode);
   };
 
   const pickFiles = async () => {
@@ -84,23 +91,41 @@ export default function App() {
             onSavePDF={handleSavePDF}
           />
           <View style={styles.controlPanel}>
-            <TouchableOpacity
-              style={[styles.button, styles.controlButton]}
-              onPress={onPressUndo}
-            >
-              <Text style={styles.buttonText}>Undo</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.button, styles.controlButton]}
-              onPress={onPressClear}
-            >
-              <Text style={styles.buttonText}>Clear</Text>
-            </TouchableOpacity>
+            {isEditMode && (
+              <>
+                <TouchableOpacity
+                  style={[styles.button, styles.controlButton]}
+                  onPress={onPressUndo}
+                >
+                  <Text style={styles.buttonText}>Undo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.button, styles.controlButton]}
+                  onPress={onPressClear}
+                >
+                  <Text style={styles.buttonText}>Clear</Text>
+                </TouchableOpacity>
+              </>
+            )}
             <TouchableOpacity
               style={[styles.button, styles.controlButton]}
               onPress={onPressSave}
             >
               <Text style={styles.buttonText}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.controlButton,
+                isEditMode
+                  ? styles.modeButtonActive
+                  : styles.modeButtonInactive,
+              ]}
+              onPress={onPressToggleMode}
+            >
+              <Text style={styles.buttonText}>
+                {isEditMode ? 'View Mode' : 'Edit Mode'}
+              </Text>
             </TouchableOpacity>
           </View>
         </>
@@ -151,8 +176,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 10,
+    gap: 8,
   },
   controlButton: {
-    width: '30%',
+    flex: 1,
+  },
+  modeButtonActive: {
+    backgroundColor: '#2ecc71',
+  },
+  modeButtonInactive: {
+    backgroundColor: '#95a5a6',
   },
 });

@@ -5,8 +5,11 @@ import UIKit
 @objc(ContainerView)
 class ContainerView: UIView {
 
+    // MARK: - UI Components
     @objc var pdfView: NonSelectablePDFView!
+    private var fileSwitcher: FileSwitcher!
 
+    // MARK: - Configuration
     @objc var options: [String: Any] = [:] {
         didSet {
             updateWithOptions(options)
@@ -16,12 +19,15 @@ class ContainerView: UIView {
     @objc var onSavePDF: RCTDirectEventBlock?
     @objc var onError: RCTDirectEventBlock?
 
+    // MARK: - Drawing & Documents
     private let pdfDrawer = PDFDrawer()
     private var filePaths = [String]()
     private var documents = [RNPDFDocument]()
-    private var fileSwitcher: FileSwitcher!
     private var currentDocumentIndex = 0
     private var documentDrawings: [Int: [Any]] = [:]
+
+    // MARK: - Gesture Recognizers
+    private var isEditMode: Bool = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -30,6 +36,17 @@ class ContainerView: UIView {
 
     required init?(coder: NSCoder) {
         fatalError("RNPDFEditor: init(coder:) has not been implemented")
+    }
+
+    func setEditMode(_ isEdit: Bool) {
+        self.isEditMode = isEdit
+        pdfView.setDrawingEnabled(isEdit)
+        
+        // In edit mode, disable PDFView's built-in pan/zoom to allow drawing
+        // In view mode, enable PDFView's built-in pan/zoom
+        if let scrollView = scrollViewIfPresent() {
+            scrollView.isScrollEnabled = !isEdit
+        }
     }
 
     private func setupView() {
@@ -41,6 +58,9 @@ class ContainerView: UIView {
         pdfView.usePageViewController(false)
         pdfView.pageBreakMargins = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         pdfView.autoScales = true
+        pdfView.minScaleFactor = 1.0
+        pdfView.maxScaleFactor = 3.0
+        pdfView.setDrawingEnabled(false)
         pdfView.isHidden = true
 
         let fileSwitcher = FileSwitcher()
@@ -69,7 +89,6 @@ class ContainerView: UIView {
     }
 
     private func updateWithOptions(_ options: [String: Any]) {
-
         if let arrayOfPaths = options["filePath"] as? [String] {
             filePaths = arrayOfPaths
             for (index, value) in filePaths.enumerated() {
@@ -120,17 +139,21 @@ class ContainerView: UIView {
                 self.pdfView.drawingDelegate = self.pdfDrawer
                 self.pdfView.document = convertedDocument
                 self.pdfView.disableSelection(in: self.pdfView)
-                self.pdfView.autoScales = true
                 
                 self.pdfDrawer.pdfView = self.pdfView
                 self.pdfDrawer.clear()
+                
+                // Reset pan/zoom on document load
+                self.pdfView.goToFirstPage(nil)
+                self.pdfView.scaleFactor = self.pdfView.scaleFactorForSizeToFit
+                self.configureScrollView()
                 
                 self.fileSwitcher.selectFile(at: index)
             }
         }
     }
 
-    private func save() {
+    @objc func save() {
         guard let onSavePDF = self.onSavePDF else {
             print("RNPDFEditor: onSavePDF is nil, can't return value")
             return
@@ -245,16 +268,12 @@ class ContainerView: UIView {
 
 extension ContainerView {
     
-    func undoButtonTapped() {
+    func undo() {
         pdfDrawer.undo()
     }
     
-    func clearButtonTapped() {
+    func clear() {
         pdfDrawer.clear()
-    }
-    
-    func saveButtonTapped() {
-        self.save()
     }
 }
 
@@ -262,5 +281,17 @@ extension ContainerView: FileSwitcherDelegate {
 
     func didSelectFile(at index: Int) {
         renderDocument(at: index)
+    }
+}
+
+// MARK: - Helpers
+private extension ContainerView {
+    func scrollViewIfPresent() -> UIScrollView? {
+        return pdfView.subviews.compactMap { $0 as? UIScrollView }.first
+    }
+
+    func configureScrollView() {
+        guard let scrollView = scrollViewIfPresent() else { return }
+        scrollView.isDirectionalLockEnabled = false // allow free pan without axis locking
     }
 }
