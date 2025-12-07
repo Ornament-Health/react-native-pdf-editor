@@ -1,8 +1,3 @@
-//
-//  ContainerView.swift
-//  react-native-pdf-editor
-//
-
 import Foundation
 import PDFKit
 import UIKit
@@ -39,7 +34,7 @@ class ContainerView: UIView {
 
     private func setupView() {
         let pdfView = NonSelectablePDFView()
-        pdfView.backgroundColor = .lightGray
+        pdfView.backgroundColor = .clear
         pdfView.translatesAutoresizingMaskIntoConstraints = false
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
@@ -85,14 +80,6 @@ class ContainerView: UIView {
             self.renderDocuments(for: documents)
         } else {
             print("RNPDFEditor: \"filePath\" value is wrong")
-        }
-
-        if let pdfViewBackgroundColor = options["viewBackgroundColor"] as? String {
-            let backgroundColor = UIColor(hexString: pdfViewBackgroundColor)
-            pdfView.backgroundColor = backgroundColor
-            fileSwitcher.setBackgroundColor(backgroundColor)
-        } else {
-            print("RNPDFEditor: \"pdfViewBackgroundColor\" value is wrong")
         }
 
         if let lineColor = options["lineColor"] as? String {

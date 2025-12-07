@@ -3,6 +3,7 @@ package com.ornament.pdfeditor
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.drawable.ColorDrawable
 import android.os.Environment
@@ -124,7 +125,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
     private fun applyOptions(options: PDFEditorOptions, refresh: Boolean) {
         if (!this::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
-        background = ColorDrawable(options.backgroundColor)
+        background = ColorDrawable(Color.TRANSPARENT)
         val filePaths = options.filePaths
         if (filePaths.isNullOrEmpty()) {
             clearRenderedContent()

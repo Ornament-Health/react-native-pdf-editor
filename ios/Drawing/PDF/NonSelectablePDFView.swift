@@ -1,8 +1,3 @@
-//
-//  NonSelectablePDFView.swift
-//  react-native-pdf-editor
-//
-
 import UIKit
 import PDFKit
 

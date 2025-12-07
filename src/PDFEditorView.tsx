@@ -8,6 +8,7 @@ import {
   Platform,
   requireNativeComponent,
   ViewStyle,
+  StyleProp,
   UIManager,
   findNodeHandle,
 } from 'react-native';
@@ -15,24 +16,28 @@ import type { Float } from 'react-native/Libraries/Types/CodegenTypes';
 
 const ComponentName = 'RNPDFEditorView';
 
-interface ExtRef {
-  undoAction(): void;
-  clearAction(): void;
-  saveAction(): void;
-}
+const DEFAULT_OPTIONS = {
+  lineColor: '#FF0000',
+  lineWidth: 5 as Float,
+};
 
-interface RNComponentProps {
-  style: ViewStyle;
+export interface RNComponentProps {
+  style: StyleProp<ViewStyle>;
   options: {
     filePath: string[];
-    viewBackgroundColor?: string;
     lineColor?: string;
     lineWidth?: Float;
   };
   onSavePDF?(url: string[] | null): void;
 }
 
-export interface RNComponentManagerProps
+interface ExtRef {
+  undoAction(): void;
+  clearAction(): void;
+  saveAction(): void;
+}
+
+interface RNComponentManagerProps
   extends Omit<RNComponentProps, 'onSavePDF'>,
     ExtRef {
   onSavePDF(event: SyntheticEvent): void;
@@ -43,7 +48,11 @@ const RNComponentViewManager =
 type PDFEVRef = React.ComponentRef<typeof RNComponentViewManager>;
 
 export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
-  ({ onSavePDF, ...props }, extRef) => {
+  ({ onSavePDF, options, ...props }, extRef) => {
+    const mergedOptions = {
+      ...DEFAULT_OPTIONS,
+      ...options,
+    };
     useImperativeHandle(extRef, () => ({
       undoAction,
       clearAction,
@@ -100,6 +109,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
     return (
       <RNComponentViewManager
         ref={componentRef}
+        options={mergedOptions}
         undoAction={undoAction}
         clearAction={clearAction}
         saveAction={saveAction}

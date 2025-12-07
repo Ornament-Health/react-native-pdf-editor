@@ -1,8 +1,3 @@
-//
-//  FileSwitcher.swift
-//  react-native-pdf-editor
-//
-
 import UIKit
 
 protocol FileSwitcherDelegate: AnyObject {
@@ -205,11 +200,7 @@ class FileSwitcher: UIView {
         if let customColor = customBackgroundColor {
             backgroundColor = customColor
         } else {
-            if #available(iOS 13.0, *) {
-                backgroundColor = UIColor.systemBackground
-            } else {
-                backgroundColor = UIColor.white
-            }
+            backgroundColor = .clear
         }
     }
 }

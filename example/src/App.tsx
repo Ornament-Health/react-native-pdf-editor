@@ -9,12 +9,10 @@ import {
 import DocumentPicker, {
   types as DocTypes,
 } from 'react-native-document-picker';
-import { PDFEditorView } from '@ornament-health/react-native-pdf-editor';
-
-enum CanvasType {
-  Image = 'image',
-  PDF = 'pdf',
-}
+import {
+  PDFEditorView,
+  RNComponentProps,
+} from '@ornament-health/react-native-pdf-editor';
 
 type PDFEVRef = ComponentRef<typeof PDFEditorView>;
 
@@ -69,14 +67,10 @@ export default function App() {
     }
   };
 
-  const options = {
+  const options: RNComponentProps['options'] = {
     filePath: selectedFiles,
-    canvasType: selectedFiles.some((p) => p.toLowerCase().endsWith('.pdf'))
-      ? CanvasType.PDF
-      : CanvasType.Image,
-    viewBackgroundColor: '#313131',
     lineColor: '#ea1d54',
-    lineWidth: 20,
+    lineWidth: 10,
   };
 
   return (

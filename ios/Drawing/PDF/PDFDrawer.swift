@@ -1,8 +1,3 @@
-//
-//  PDFDrawer.swift
-//  react-native-pdf-editor
-//
-
 import Foundation
 import PDFKit
 
@@ -12,9 +7,9 @@ class PDFDrawer {
     private var currentAnnotation: DrawingAnnotation?
     private var allAnnotations: [PDFAnnotation] = []
     private var currentPage: PDFPage?
-    var color = UIColor.red // default color is red
-    var width: CGFloat = 5 // default width
-    var alpha: CGFloat = 0.3 // default alpha
+    var color: UIColor!
+    var width: CGFloat!
+    var alpha: CGFloat = 0.3
 
     func undo() {
         if let lastAnnotation = allAnnotations.last,

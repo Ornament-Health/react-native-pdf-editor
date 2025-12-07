@@ -1,8 +1,3 @@
-//
-//  UIBezierPath+.swift
-//  react-native-pdf-editor
-//
-
 import UIKit
 
 extension CGRect{
