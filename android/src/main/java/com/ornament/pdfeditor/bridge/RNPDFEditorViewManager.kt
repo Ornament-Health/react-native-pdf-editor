@@ -38,7 +38,7 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
     }
 
     override fun getExportedCustomBubblingEventTypeConstants(): MutableMap<String, Any>? {
-        return MapBuilder.builder<String, Any>()
+        return HashMap(MapBuilder.builder<String, Any>()
             .put(
                 "savePDF",
                 MapBuilder.of(
@@ -46,7 +46,7 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
                     MapBuilder.of("bubbled", "onSavePDF")
                 )
             )
-            .build()
+            .build())
     }
 
     override fun receiveCommand(root: PDFEditorView, commandId: String?, args: ReadableArray?) {
