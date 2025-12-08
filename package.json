@@ -4,7 +4,7 @@
   "description": "Ornament React Native PDF editor",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
-  "types": "lib/typescript/src/index.d.ts",
+  "types": "src/index.ts",
   "react-native": "src/index.ts",
   "source": "src/index",
   "files": [
