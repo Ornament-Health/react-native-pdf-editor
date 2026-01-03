@@ -9,6 +9,7 @@ import {
 import DocumentPicker, {
   types as DocTypes,
 } from 'react-native-document-picker';
+import RNFS from 'react-native-fs';
 import {
   PDFEditorView,
   RNComponentProps,
@@ -27,6 +28,17 @@ export default function App() {
       console.log('got null value for url:', e);
     } else {
       console.log('got url:', e);
+      e.forEach(async (fileUrl) => {
+        try {
+          const filePath = fileUrl.replace('file://', '');
+          const stat = await RNFS.stat(filePath);
+          const sizeInMB = (stat.size / (1024 * 1024)).toFixed(2);
+          const fileName = filePath.split('/').pop() || 'unknown';
+          console.log(`📄 ${fileName}: ${sizeInMB} MB (${stat.size} bytes)`);
+        } catch (error) {
+          console.warn(`Failed to get file size for ${fileUrl}:`, error);
+        }
+      });
     }
   };
 

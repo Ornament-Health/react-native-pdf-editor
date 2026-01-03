@@ -4,7 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.os.Environment
 import android.util.Log
@@ -41,6 +43,16 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         editMode = isEdit
     }
 
+    fun setExcludedPages(documentIndex: Int, pages: List<Int>) {
+        val document = documents.getOrNull(documentIndex) ?: return
+        val filteredPages = if (document.pageCount > 0) {
+            pages.filter { it >= 0 && it < document.pageCount }.toSet()
+        } else {
+            pages.filter { it >= 0 }.toSet()
+        }
+        excludedPages[documentIndex] = filteredPages
+    }
+
     companion object {
         private const val ACTION_TAG = "ACTION"
         private const val MARGIN = 20f
@@ -59,8 +71,13 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private val documentPreviews = mutableListOf<DocumentPreviewItem>()
     private var activeDocumentIndex = 0
 
+    private val excludedPages = mutableMapOf<Int, Set<Int>>()
+    private var lastPageBounds: Map<Int, RectF> = emptyMap()
+
     private lateinit var options: PDFEditorOptions
     private var pendingOptions: PDFEditorOptions? = null
+
+    private var selectionIconColor: Int = Color.WHITE
 
     private val operationList = mutableListOf<Int>()
 
@@ -98,6 +115,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         movementDifference = PointF(0f, 0f)
         operationList.clear()
         documents.forEach { it.reset() }
+        lastPageBounds = emptyMap()
     }
 
     private fun updateViewPortSize() {
@@ -130,6 +148,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private fun applyOptions(options: PDFEditorOptions, refresh: Boolean) {
         if (!this::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
         background = ColorDrawable(Color.TRANSPARENT)
+        selectionIconColor = options.selectionIconColor
         val filePaths = options.filePaths
         if (filePaths.isNullOrEmpty()) {
             clearRenderedContent()
@@ -142,6 +161,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             buildDocuments(filePaths)
             reset()
             activeDocumentIndex = 0
+            excludedPages.clear()
+            lastPageBounds = emptyMap()
             centerDocuments()
             prepareDocumentPreviews()
         } else {
@@ -168,21 +189,17 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     fun save() {
         coroutineScope.launch(Dispatchers.IO) {
             var outputs: MutableList<String>? = mutableListOf()
-            documents.forEach {
-                outputs?.add(
-                    saveDocument(it) ?: run {
-                        outputs = null
-                        return@forEach
-                    }
-                )
+            documents.forEachIndexed { index, document ->
+                val excluded = excludedPages[index] ?: emptySet()
+                saveDocument(document, excluded)?.let { outputs?.add(it) }
             }
             onSavePDFAction(outputs)
         }
     }
 
-    private fun saveDocument(document: Document): String? {
+    private fun saveDocument(document: Document, excluded: Set<Int>): String? {
         return outputDirectory?.let {
-            document.save(it, options)
+            document.save(it, options, excluded)
         }
     }
 
@@ -249,6 +266,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private fun onPreviewSelected(index: Int) {
         if (index == activeDocumentIndex || index !in documents.indices) return
         activeDocumentIndex = index
+        lastPageBounds = emptyMap()
         scale = 1f
         movementDifference = PointF(0f, 0f)
         centerDocuments()
@@ -331,9 +349,117 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             options.lineColor,
             options.lineWidth
         )
+        lastPageBounds = document.pageBounds()
+        renderPageSelection(bitmap, document)
         binding.viewPort.setImageBitmap(bitmap)
         binding.viewPort.invalidate()
         invalidate()
+    }
+
+    private fun renderPageSelection(bitmap: Bitmap, document: Document) {
+        val canvas = Canvas(bitmap)
+        val excluded = excludedPages[activeDocumentIndex] ?: emptySet()
+        val shadePaint = Paint().apply {
+            color = Color.argb(70, 80, 80, 80)
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+            val iconPaint = Paint().apply {
+            color = selectionIconColor
+            strokeWidth = dpToPx(2f)
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            isAntiAlias = true
+        }
+            val iconBgPaint = Paint().apply {
+                color = Color.argb(90, 0, 0, 0)
+                style = Paint.Style.FILL
+                isAntiAlias = true
+            }
+
+        document.pageBounds().forEach { (index, rect) ->
+            if (excluded.contains(index)) {
+                canvas.drawRect(rect, shadePaint)
+            }
+                drawSelectionIcon(canvas, rect, iconPaint, iconBgPaint, excluded.contains(index))
+        }
+    }
+
+    private fun dpToPx(value: Float): Float = value * resources.displayMetrics.density
+
+    private fun iconHitRect(pageRect: RectF): RectF {
+        val size = dpToPx(28f)
+        val inset = dpToPx(8f)
+        return RectF(
+            pageRect.right - inset - size,
+            pageRect.top + inset,
+            pageRect.right - inset,
+            pageRect.top + inset + size
+        )
+    }
+
+    private fun handleSelectionTap(event: MotionEvent): Boolean {
+        if (event.pointerCount > 1) return false
+        if (lastPageBounds.isEmpty()) return false
+        lastPageBounds.forEach { (index, rect) ->
+            if (iconHitRect(rect).contains(event.x, event.y)) {
+                toggleExcludedPage(index)
+                render(true)
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun toggleExcludedPage(pageIndex: Int) {
+        val document = documents.getOrNull(activeDocumentIndex) ?: return
+        if (pageIndex < 0 || pageIndex >= document.pageCount) return
+        val current = excludedPages[activeDocumentIndex]?.toMutableSet() ?: mutableSetOf()
+        if (current.contains(pageIndex)) {
+            current.remove(pageIndex)
+        } else {
+            current.add(pageIndex)
+        }
+        excludedPages[activeDocumentIndex] = current
+    }
+
+    private fun drawSelectionIcon(canvas: Canvas, pageRect: RectF, paint: Paint, bgPaint: Paint, isExcluded: Boolean) {
+        val size = dpToPx(24f)
+        val inset = dpToPx(8f)
+        val iconRect = RectF(
+            pageRect.right - inset - size,
+            pageRect.top + inset,
+            pageRect.right - inset,
+            pageRect.top + inset + size
+        )
+        val circleRect = RectF(iconRect).apply { inset(dpToPx(2f), dpToPx(2f)) }
+        canvas.drawOval(circleRect, bgPaint)
+        canvas.drawOval(circleRect, paint)
+
+        if (isExcluded) {
+            canvas.drawLine(
+                circleRect.left + dpToPx(4f),
+                circleRect.bottom - dpToPx(4f),
+                circleRect.right - dpToPx(4f),
+                circleRect.top + dpToPx(4f),
+                paint
+            )
+        } else {
+            canvas.drawLines(
+                floatArrayOf(
+                    circleRect.left + dpToPx(4f),
+                    circleRect.centerY(),
+                    circleRect.centerX() - dpToPx(2f),
+                    circleRect.bottom - dpToPx(6f),
+                    circleRect.centerX() - dpToPx(2f),
+                    circleRect.bottom - dpToPx(6f),
+                    circleRect.right - dpToPx(4f),
+                    circleRect.top + dpToPx(6f)
+                ),
+                paint
+            )
+        }
     }
 
 
@@ -344,6 +470,13 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private var startShapeOnPoint: PointF? = null
     private var lastDifference: Float? = null
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            if (handleSelectionTap(event)) {
+                // Consume the tap and re-render to reflect icon change
+                return true
+            }
+        }
+
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (editMode) {

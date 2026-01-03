@@ -25,6 +25,8 @@ class ContainerView: UIView {
     private var documents = [RNPDFDocument]()
     private var currentDocumentIndex = 0
     private var documentDrawings: [Int: [Any]] = [:]
+    private var excludedPages: [Int: Set<Int>] = [:]
+    private var selectionIconColor: UIColor = .white
 
     // MARK: - Gesture Recognizers
     private var isEditMode: Bool = false
@@ -89,6 +91,13 @@ class ContainerView: UIView {
     }
 
     private func updateWithOptions(_ options: [String: Any]) {
+        documents.removeAll()
+        excludedPages.removeAll()
+        documentDrawings.removeAll()
+        filePaths.removeAll()
+        currentDocumentIndex = 0
+        pdfView.clearPageIndicators()
+
         if let arrayOfPaths = options["filePath"] as? [String] {
             filePaths = arrayOfPaths
             for (index, value) in filePaths.enumerated() {
@@ -112,6 +121,12 @@ class ContainerView: UIView {
         } else {
             print("RNPDFEditor: \"lineWidth\" value is wrong")
         }
+
+        if let iconColor = options["selectionIconColor"] as? String {
+            selectionIconColor = UIColor(hexString: iconColor)
+        } else {
+            selectionIconColor = .white
+        }
     }
 
     private func renderDocuments(for documents: [RNPDFDocument]) {
@@ -125,20 +140,35 @@ class ContainerView: UIView {
         renderDocument(at: 0)
     }
 
+    private func loadDocument(_ document: RNPDFDocument, completion: @escaping (PDFDocument?) -> Void) {
+        if let existing = document.renderedDocument {
+            completion(existing)
+            return
+        }
+
+        document.convert { convertedDocument in
+            document.renderedDocument = convertedDocument
+            completion(convertedDocument)
+        }
+    }
+
     private func renderDocument(at index: Int) {
         guard index >= 0 && index < documents.count else { return }
         
         currentDocumentIndex = index
         let document = documents[index]
-        
-        document.convert { [weak self] convertedDocument in
+
+        loadDocument(document) { [weak self] convertedDocument in
             guard let self = self, let convertedDocument = convertedDocument else { return }
-            
+
             DispatchQueue.main.async {
                 self.pdfView.isHidden = false
                 self.pdfView.drawingDelegate = self.pdfDrawer
                 self.pdfView.document = convertedDocument
                 self.pdfView.disableSelection(in: self.pdfView)
+                self.pdfView.onTogglePage = { [weak self] pageIndex in
+                    self?.togglePageExclusion(pageIndex: pageIndex)
+                }
                 
                 self.pdfDrawer.pdfView = self.pdfView
                 self.pdfDrawer.clear()
@@ -149,6 +179,7 @@ class ContainerView: UIView {
                 self.configureScrollView()
                 
                 self.fileSwitcher.selectFile(at: index)
+                self.configurePageIndicators(for: document)
             }
         }
     }
@@ -162,97 +193,94 @@ class ContainerView: UIView {
         var params: [String : [String]?] = ["url" : nil]
         var resultArray = [String]()
 
-        var nextPageIndex = 0
-
         let today = Date()
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
 
         for item in documents {
-            let pages = item.pageCount
+            guard let document = documentForSaving(item) else {
+                print("RNPDFEditor: unable to load document with id \(item.id)")
+                continue
+            }
+
+            let excluded = excludedPages[item.id] ?? []
+
             if item.type == .image {
+                guard !excluded.contains(0) else { continue }
 
-                if let fileNameWithExt = item.incomingPath.components(separatedBy: "/").last,
-                   let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
+                guard let fileNameWithExt = item.incomingPath.components(separatedBy: "/").last,
+                      let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first else {
+                    print("RNPDFEditor: can't handle URL")
+                    continue
+                }
 
-                    let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".png"
-                    let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
+                let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".png"
+                let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
 
-                    guard let document = pdfView.document,
-                          let page = document.page(at: nextPageIndex) else {
-                        print("RNPDFEditor: image with path \(item.incomingPath) not writed locally")
-                        break
+                guard let page = document.page(at: 0) else {
+                    print("RNPDFEditor: image with path \(item.incomingPath) not writed locally")
+                    continue
+                }
+
+                let bounds = page.bounds(for: .cropBox)
+
+                let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
+
+                let image = renderer.image { context in
+                    context.cgContext.saveGState()
+                    context.cgContext.translateBy(x: 0, y: bounds.height)
+                    context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
+                    page.draw(with: .mediaBox, to: context.cgContext)
+                    context.cgContext.restoreGState()
+                }
+
+                if let data = image.pngData() {
+                    do {
+                        try data.write(to: fileURL)
+                        resultArray.append(fileURL.absoluteString)
+                    } catch {
+                        print("RNPDFEditor: can't create image for saving")
                     }
+                }
+            } else {
+                guard let fileNameWithExt = item.incomingPath.components(separatedBy: "/").last,
+                      let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first else {
+                    print("RNPDFEditor: can't handle URL")
+                    continue
+                }
+
+                let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".pdf"
+                let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
+
+                let resultDocument = PDFDocument()
+                var resultDocumentIndex = 0
+
+                for pageIndex in 0..<document.pageCount {
+                    if excluded.contains(pageIndex) { continue }
+                    guard let page = document.page(at: pageIndex) else { continue }
 
                     let bounds = page.bounds(for: .cropBox)
-
                     let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
 
-                    let image = renderer.image { (context) in
+                    let image = renderer.image { context in
                         context.cgContext.saveGState()
                         context.cgContext.translateBy(x: 0, y: bounds.height)
                         context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
                         page.draw(with: .mediaBox, to: context.cgContext)
                         context.cgContext.restoreGState()
                     }
-
-                    if let data = image.pngData() {
-                        do {
-                            try data.write(to: fileURL)
-                        } catch {
-                            print("RNPDFEditor: can't create image for saving")
-                            break
-                        }
+                    
+                    if let newPage = PDFPage(image: image) {
+                        resultDocument.insert(newPage, at: resultDocumentIndex)
+                        resultDocumentIndex += 1
                     }
-                    resultArray.append(fileURL.absoluteString)
-
-                } else {
-                    print("RNPDFEditor: can't handle URL")
-                    break
                 }
 
-            } else {
-                if let fileNameWithExt = item.incomingPath.components(separatedBy: "/").last,
-                   let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
-                    let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".pdf"
-                    let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
+                guard resultDocument.pageCount > 0 else { continue }
 
-                    guard let document = pdfView.document else {
-                        print("RNPDFEditor: PDF not writed locally")
-                        break
-                    }
-
-                    let resultDocument = PDFDocument()
-                    var resultDocumentIndex = 0
-                    for index in nextPageIndex..<(nextPageIndex + item.pageCount) {
-                        guard let page = document.page(at: index) else {
-                            print("RNPDFEditor: PDF not writed locally")
-                            break
-                        }
-                        let bounds = page.bounds(for: .cropBox)
-
-                        let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
-
-                        let image = renderer.image { (context) in
-                            context.cgContext.saveGState()
-                            context.cgContext.translateBy(x: 0, y: bounds.height)
-                            context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
-                            page.draw(with: .mediaBox, to: context.cgContext)
-                            context.cgContext.restoreGState()
-                        }
-                        
-                        if let newPage = PDFPage(image: image) {
-                            resultDocument.insert(newPage, at: resultDocumentIndex)
-                            resultDocumentIndex += 1
-                        }
-                    }
-                    resultDocument.write(to: fileURL)
-                    resultArray.append(fileURL.absoluteString)
-                } else {
-                    print("RNPDFEditor: can't handle URL")
-                }
+                resultDocument.write(to: fileURL)
+                resultArray.append(fileURL.absoluteString)
             }
-            nextPageIndex += pages
         }
 
         params["url"] = resultArray
@@ -263,6 +291,42 @@ class ContainerView: UIView {
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         let documentsDirectory = paths[0]
         return documentsDirectory
+    }
+
+    private func configurePageIndicators(for document: RNPDFDocument) {
+        let excluded = excludedPages[document.id] ?? []
+        pdfView.updatePageIndicators(excluded: excluded, iconColor: selectionIconColor)
+    }
+
+    private func togglePageExclusion(pageIndex: Int) {
+        guard currentDocumentIndex >= 0 && currentDocumentIndex < documents.count else { return }
+        let document = documents[currentDocumentIndex]
+        guard pageIndex >= 0 else { return }
+
+        var set = excludedPages[document.id] ?? []
+        if set.contains(pageIndex) {
+            set.remove(pageIndex)
+        } else {
+            set.insert(pageIndex)
+        }
+        excludedPages[document.id] = set
+        pdfView.updatePageIndicators(excluded: set, iconColor: selectionIconColor)
+    }
+
+    private func documentForSaving(_ document: RNPDFDocument) -> PDFDocument? {
+        if let rendered = document.renderedDocument {
+            return rendered
+        }
+
+        var convertedDocument: PDFDocument?
+        let semaphore = DispatchSemaphore(value: 0)
+        document.convert { pdfDocument in
+            convertedDocument = pdfDocument
+            document.renderedDocument = pdfDocument
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 5)
+        return convertedDocument
     }
 }
 

@@ -12,6 +12,7 @@ class RNPDFDocument {
     var type: DocumentType
     var incomingPath: String
     var pageCount: Int = 0
+    var renderedDocument: PDFDocument?
     private var documentURL: URL?
 
     init?(id: Int, path: String) {

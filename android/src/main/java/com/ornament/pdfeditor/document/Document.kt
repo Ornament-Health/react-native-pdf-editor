@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.PointF
+import android.graphics.RectF
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
@@ -21,9 +22,11 @@ abstract class Document {
     abstract var size: SizeF
         protected set
 
+    abstract val pageCount: Int
+
     var minScale = 1f
 
-    abstract fun save(outputDirectory: String, options: PDFEditorOptions): String
+    abstract fun save(outputDirectory: String, options: PDFEditorOptions, excludedPages: Set<Int>): String?
 
     abstract fun render(canvas: Canvas, scale: Float, offset: PointF, viewPortSize: Size, refresh: Boolean)
 
@@ -40,6 +43,8 @@ abstract class Document {
     abstract fun undo()
 
     abstract fun clear()
+
+    abstract fun pageBounds(): Map<Int, RectF>
 
     open fun generateThumbnail(maxWidth: Int, maxHeight: Int): Bitmap? = null
 

@@ -19,6 +19,7 @@ const ComponentName = 'RNPDFEditorView';
 const DEFAULT_OPTIONS = {
   lineColor: '#FF0000',
   lineWidth: 5 as Float,
+  selectionIconColor: '#FFFFFF',
 };
 
 export interface RNComponentProps {
@@ -27,6 +28,7 @@ export interface RNComponentProps {
     filePath: string[];
     lineColor?: string;
     lineWidth?: Float;
+    selectionIconColor?: string;
   };
   onSavePDF?(url: string[] | null): void;
 }

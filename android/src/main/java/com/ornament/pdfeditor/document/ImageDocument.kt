@@ -23,10 +23,12 @@ class ImageDocument(
 
     private lateinit var imageBitmap: Bitmap
     override lateinit var size: SizeF
+    override val pageCount: Int = 1
     private var bounds: RectF? = null
     private val imageDrawing = mutableListOf<BezierCurve>()
 
-    override fun save(outputDirectory: String, options: PDFEditorOptions): String {
+    override fun save(outputDirectory: String, options: PDFEditorOptions, excludedPages: Set<Int>): String? {
+        if (excludedPages.contains(0)) return null
         val pagePaint = Paint().apply {
             color = options.lineColor
             strokeWidth = options.lineWidth.toFloat()
@@ -163,6 +165,8 @@ class ImageDocument(
     override fun clear() {
         imageDrawing.clear()
     }
+
+    override fun pageBounds(): Map<Int, RectF> = bounds?.let { mapOf(0 to it) } ?: emptyMap()
 
     override fun generateThumbnail(maxWidth: Int, maxHeight: Int): Bitmap? {
         if (!::imageBitmap.isInitialized || maxWidth <= 0 || maxHeight <= 0) return null

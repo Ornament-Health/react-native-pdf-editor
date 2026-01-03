@@ -31,30 +31,37 @@ class PdfDocument(
         private const val PAGE_MARGIN = 5f
     }
 
-    private var pageCount = 1
+    private var pageCountValue = 1
     private var pdfDocument: PdfDocument
     private var renderer: PdfRenderer
     private var currentPage: PdfRenderer.Page? = null
     private var pageSize: SizeF
     override lateinit var size: SizeF
 
+    override val pageCount: Int
+        get() = pageCountValue
+
     private val bitmapPages = mutableMapOf<Int, Bitmap>()
     private val boundsOfPages = mutableMapOf<Int, RectF>()
     private val pagesDrawing = mutableListOf<Pair<Int, BezierCurve>>()
 
 
-    override fun save(outputDirectory: String, options: PDFEditorOptions): String {
+    override fun save(outputDirectory: String, options: PDFEditorOptions, excludedPages: Set<Int>): String? {
+        val includedPages = (0 until pdfDocument.numberOfPages).filterNot { excludedPages.contains(it) }
+        if (includedPages.isEmpty()) return null
+
         val outputStream = ByteArrayOutputStream()
-        val copy = PdfDocument(PdfWriter(outputStream)).also {
-            pdfDocument.copyPagesTo(1, pdfDocument.numberOfPages, it)
-        }
-        for (pageNumber in 1..pdfDocument.numberOfPages) {
-            PdfCanvas(copy.getPage(pageNumber)).let { pdfCanvas ->
-                pagesDrawing.filter { it.first == pageNumber - 1 }.forEach {
+        val copy = PdfDocument(PdfWriter(outputStream))
+
+        includedPages.forEachIndexed { destinationIndex, pageIndex ->
+            pdfDocument.copyPagesTo(pageIndex + 1, pageIndex + 1, copy)
+            PdfCanvas(copy.getPage(destinationIndex + 1)).let { pdfCanvas ->
+                pagesDrawing.filter { it.first == pageIndex }.forEach {
                     it.second.drawOnPdfCanvas(pdfCanvas, pageSize, 1f / minScale)
                 }
             }
         }
+
         copy.close()
         val outputPath = "$outputDirectory/$filename-edited.pdf"
         FileOutputStream(outputPath).also { outputFileStream ->
@@ -71,7 +78,7 @@ class PdfDocument(
           inputFileStream.close()
         }
         renderer = PdfRenderer(parcelFileDescriptor)
-        pageCount = renderer.pageCount
+        pageCountValue = renderer.pageCount
         currentPage?.close()
         currentPage = renderer.openPage(0)
         pageSize = with(currentPage!!) { SizeF(width.toFloat(), height.toFloat()) }
@@ -205,6 +212,8 @@ class PdfDocument(
     override fun clear() {
         pagesDrawing.clear()
     }
+
+    override fun pageBounds(): Map<Int, RectF> = boundsOfPages.toMap()
 
     override fun generateThumbnail(maxWidth: Int, maxHeight: Int): Bitmap? {
         if (maxWidth <= 0 || maxHeight <= 0 || pageCount <= 0) return null
