@@ -1,6 +1,7 @@
 package com.ornament.pdfeditor
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -16,6 +17,7 @@ import android.view.MotionEvent
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
+import androidx.core.widget.ImageViewCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.itextpdf.kernel.utils.XmlProcessorCreator
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
@@ -41,6 +43,42 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private var editMode: Boolean = false
     fun setEditMode(isEdit: Boolean) {
         editMode = isEdit
+        updateBottomControlsVisibility()
+    }
+
+    private fun updateBottomControlsVisibility() {
+        binding.editControlsContainer.isVisible = editMode
+        binding.previewList.isVisible = !editMode
+        
+        // Force FrameLayout to remeasure its children
+        binding.bottomControls.requestLayout()
+        
+        // Force LinearLayout to measure with proper specs
+        if (editMode) {
+            val widthSpec = android.view.View.MeasureSpec.makeMeasureSpec(
+                binding.bottomControls.width,
+                android.view.View.MeasureSpec.EXACTLY
+            )
+            val heightSpec = android.view.View.MeasureSpec.makeMeasureSpec(
+                binding.bottomControls.height,
+                android.view.View.MeasureSpec.EXACTLY
+            )
+            binding.editControlsContainer.measure(widthSpec, heightSpec)
+            binding.editControlsContainer.layout(0, 0, binding.bottomControls.width, binding.bottomControls.height)
+        }
+        
+        binding.bottomControls.post {
+            // Layout measurement complete
+        }
+    }
+
+    private fun applySelectionIconColor() {
+        try {
+            binding.btnUndo.setColorFilter(selectionIconColor)
+            binding.btnRedo.setColorFilter(selectionIconColor)
+        } catch (e: Exception) {
+            Log.e("PDFEditorView", "Error applying color: ${e.message}")
+        }
     }
 
     fun setExcludedPages(documentIndex: Int, pages: List<Int>) {
@@ -108,6 +146,17 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         binding.viewPort.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             updateViewPortSize()
         }
+        
+        // Setup edit controls
+        binding.btnUndo.setOnClickListener {
+            undo()
+        }
+        binding.btnRedo.setOnClickListener {
+            // Redo functionality would go here if implemented
+            // For now, this matches the iOS implementation which only has undo
+        }
+        applySelectionIconColor()
+        updateBottomControlsVisibility()
     }
 
     private fun reset() {
@@ -149,6 +198,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         if (!this::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
         background = ColorDrawable(Color.TRANSPARENT)
         selectionIconColor = options.selectionIconColor
+        applySelectionIconColor()
         val filePaths = options.filePaths
         if (filePaths.isNullOrEmpty()) {
             clearRenderedContent()
@@ -182,7 +232,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         operationList.removeLastOrNull()?.let {
             documents[it].undo()
             render()
-            Log.d(ACTION_TAG, "UNDO")
         }
     }
 
@@ -207,7 +256,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         operationList.clear()
         documents.forEach { it.clear() }
         render()
-        Log.d(ACTION_TAG, "CLEAR")
     }
 
     private fun buildDocuments(filePaths: List<String>) {

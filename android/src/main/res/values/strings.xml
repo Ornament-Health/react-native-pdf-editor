@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pdfeditor_preview_content_description">Document preview</string>
+    <string name="pdfeditor_undo">Undo</string>
+    <string name="pdfeditor_redo">Redo</string>
 </resources>

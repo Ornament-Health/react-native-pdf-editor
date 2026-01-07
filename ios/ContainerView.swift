@@ -8,6 +8,9 @@ class ContainerView: UIView {
     // MARK: - UI Components
     @objc var pdfView: NonSelectablePDFView!
     private var fileSwitcher: FileSwitcher!
+    private var editControlsContainer: UIView!
+    private var undoButton: UIButton!
+    private var redoButton: UIButton!
 
     // MARK: - Configuration
     @objc var options: [String: Any] = [:] {
@@ -49,6 +52,144 @@ class ContainerView: UIView {
         if let scrollView = scrollViewIfPresent() {
             scrollView.isScrollEnabled = !isEdit
         }
+
+        updateBottomControlsVisibility()
+    }
+
+    private func updateBottomControlsVisibility() {
+        fileSwitcher?.isHidden = isEditMode
+        editControlsContainer?.isHidden = !isEditMode
+    }
+
+    private func applySelectionIconColor() {
+        guard let undoButton = undoButton, let redoButton = redoButton else { return }
+        
+        // Update circular background colors
+        undoButton.superview?.backgroundColor = selectionIconColor
+        redoButton.superview?.backgroundColor = selectionIconColor
+
+        if #available(iOS 13.0, *) {
+            return
+        }
+
+        undoButton.setTitleColor(.clear, for: .normal)
+        redoButton.setTitleColor(.clear, for: .normal)
+    }
+
+    private func makeEditControlsContainer() -> UIView {
+        let containerView = UIView()
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Create circular background view for undo button
+        let undoBackgroundView = UIView()
+        undoBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        undoBackgroundView.backgroundColor = selectionIconColor
+        undoBackgroundView.layer.cornerRadius = 28
+        undoBackgroundView.clipsToBounds = true
+
+        let undoButton = UIButton(type: .system)
+        undoButton.translatesAutoresizingMaskIntoConstraints = false
+        if #available(iOS 13.0, *) {
+            // Add cut-out arrow using compositing filter instead of button image
+            let undoIconView = UIImageView(image: UIImage(systemName: "arrow.uturn.left"))
+            undoIconView.translatesAutoresizingMaskIntoConstraints = false
+            undoIconView.tintColor = .black
+            undoIconView.contentMode = .scaleAspectFit
+            undoIconView.isUserInteractionEnabled = false
+            undoIconView.layer.compositingFilter = "destinationOut"
+            undoBackgroundView.addSubview(undoIconView)
+            NSLayoutConstraint.activate([
+                undoIconView.centerXAnchor.constraint(equalTo: undoBackgroundView.centerXAnchor),
+                undoIconView.centerYAnchor.constraint(equalTo: undoBackgroundView.centerYAnchor),
+                undoIconView.widthAnchor.constraint(equalToConstant: 24),
+                undoIconView.heightAnchor.constraint(equalToConstant: 24),
+            ])
+        } else {
+            undoButton.setTitle("Undo", for: .normal)
+            undoButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        }
+        undoButton.tintColor = .clear
+        undoButton.backgroundColor = .clear
+        undoButton.contentEdgeInsets = .zero
+
+        // Place the button over the background view to capture taps
+        undoBackgroundView.addSubview(undoButton)
+        NSLayoutConstraint.activate([
+            undoButton.leadingAnchor.constraint(equalTo: undoBackgroundView.leadingAnchor),
+            undoButton.trailingAnchor.constraint(equalTo: undoBackgroundView.trailingAnchor),
+            undoButton.topAnchor.constraint(equalTo: undoBackgroundView.topAnchor),
+            undoButton.bottomAnchor.constraint(equalTo: undoBackgroundView.bottomAnchor),
+        ])
+
+        // Create circular background view for redo button
+        let redoBackgroundView = UIView()
+        redoBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        redoBackgroundView.backgroundColor = selectionIconColor
+        redoBackgroundView.layer.cornerRadius = 28
+        redoBackgroundView.clipsToBounds = true
+
+        let redoButton = UIButton(type: .system)
+        redoButton.translatesAutoresizingMaskIntoConstraints = false
+        if #available(iOS 13.0, *) {
+            // Add cut-out arrow using compositing filter instead of button image
+            let redoIconView = UIImageView(image: UIImage(systemName: "arrow.uturn.right"))
+            redoIconView.translatesAutoresizingMaskIntoConstraints = false
+            redoIconView.tintColor = .black
+            redoIconView.contentMode = .scaleAspectFit
+            redoIconView.isUserInteractionEnabled = false
+            redoIconView.layer.compositingFilter = "destinationOut"
+            redoBackgroundView.addSubview(redoIconView)
+            NSLayoutConstraint.activate([
+                redoIconView.centerXAnchor.constraint(equalTo: redoBackgroundView.centerXAnchor),
+                redoIconView.centerYAnchor.constraint(equalTo: redoBackgroundView.centerYAnchor),
+                redoIconView.widthAnchor.constraint(equalToConstant: 24),
+                redoIconView.heightAnchor.constraint(equalToConstant: 24),
+            ])
+        } else {
+            redoButton.setTitle("Redo", for: .normal)
+            redoButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        }
+        redoButton.tintColor = .clear
+        redoButton.backgroundColor = .clear
+        redoButton.contentEdgeInsets = .zero
+
+        // Place the button over the background view to capture taps
+        redoBackgroundView.addSubview(redoButton)
+        NSLayoutConstraint.activate([
+            redoButton.leadingAnchor.constraint(equalTo: redoBackgroundView.leadingAnchor),
+            redoButton.trailingAnchor.constraint(equalTo: redoBackgroundView.trailingAnchor),
+            redoButton.topAnchor.constraint(equalTo: redoBackgroundView.topAnchor),
+            redoButton.bottomAnchor.constraint(equalTo: redoBackgroundView.bottomAnchor),
+        ])
+
+        let stack = UIStackView(arrangedSubviews: [undoBackgroundView, redoBackgroundView])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 16
+        stack.setContentHuggingPriority(.required, for: .horizontal)
+        stack.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        containerView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            stack.leadingAnchor.constraint(
+                greaterThanOrEqualTo: containerView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(
+                lessThanOrEqualTo: containerView.trailingAnchor, constant: -16),
+            undoBackgroundView.widthAnchor.constraint(equalToConstant: 56),
+            undoBackgroundView.heightAnchor.constraint(equalToConstant: 56),
+            redoBackgroundView.widthAnchor.constraint(equalToConstant: 56),
+            redoBackgroundView.heightAnchor.constraint(equalToConstant: 56),
+        ])
+
+        self.undoButton = undoButton
+        self.redoButton = redoButton
+        self.editControlsContainer = containerView
+        applySelectionIconColor()
+
+        return containerView
     }
 
     private func setupView() {
@@ -69,7 +210,9 @@ class ContainerView: UIView {
         fileSwitcher.translatesAutoresizingMaskIntoConstraints = false
         fileSwitcher.delegate = self
 
-        let stackView = UIStackView(arrangedSubviews: [pdfView, fileSwitcher])
+        let editControls = makeEditControlsContainer()
+
+        let stackView = UIStackView(arrangedSubviews: [pdfView, fileSwitcher, editControls])
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .vertical
         stackView.spacing = 0
@@ -81,6 +224,7 @@ class ContainerView: UIView {
             stackView.topAnchor.constraint(equalTo: self.safeAreaLayoutGuide.topAnchor),
             self.safeAreaLayoutGuide.bottomAnchor.constraint(equalTo: stackView.bottomAnchor),
             fileSwitcher.heightAnchor.constraint(equalToConstant: 120),
+            editControls.heightAnchor.constraint(equalToConstant: 120),
 
             stackView.leadingAnchor.constraint(equalTo: self.safeAreaLayoutGuide.leadingAnchor),
             self.safeAreaLayoutGuide.trailingAnchor.constraint(equalTo: stackView.trailingAnchor)
@@ -88,6 +232,7 @@ class ContainerView: UIView {
 
         self.pdfView = pdfView
         self.fileSwitcher = fileSwitcher
+        updateBottomControlsVisibility()
     }
 
     private func updateWithOptions(_ options: [String: Any]) {
@@ -127,6 +272,8 @@ class ContainerView: UIView {
         } else {
             selectionIconColor = .white
         }
+
+        applySelectionIconColor()
     }
 
     private func renderDocuments(for documents: [RNPDFDocument]) {
