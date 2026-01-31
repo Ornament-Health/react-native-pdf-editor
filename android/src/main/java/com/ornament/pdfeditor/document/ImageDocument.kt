@@ -3,12 +3,14 @@ package com.ornament.pdfeditor.document
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.RectF
 import android.os.ParcelFileDescriptor
 import android.util.Size
 import android.util.SizeF
+import androidx.exifinterface.media.ExifInterface
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.drawing.BezierCurve
 import java.io.ByteArrayOutputStream
@@ -74,8 +76,52 @@ class ImageDocument(
     }
 
     private fun decodeImage(): Bitmap? =
-        BitmapFactory.decodeFileDescriptor(parcelFileDescriptor.fileDescriptor)
+        BitmapFactory.decodeFileDescriptor(parcelFileDescriptor.fileDescriptor)?.let(::applyExifOrientation)
 
+    private fun applyExifOrientation(bitmap: Bitmap): Bitmap {
+        return when (readExifOrientation()) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> rotateBitmap(bitmap, 90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> rotateBitmap(bitmap, 180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> rotateBitmap(bitmap, 270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> rotateBitmap(bitmap, flipX = true)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> rotateBitmap(bitmap, flipY = true)
+            ExifInterface.ORIENTATION_TRANSPOSE -> rotateBitmap(bitmap, 90f, flipX = true)
+            ExifInterface.ORIENTATION_TRANSVERSE -> rotateBitmap(bitmap, 270f, flipX = true)
+            else -> bitmap
+        }
+    }
+
+    private fun readExifOrientation(): Int =
+        try {
+            ParcelFileDescriptor.dup(parcelFileDescriptor.fileDescriptor).use { descriptor ->
+                ExifInterface(descriptor.fileDescriptor).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_UNDEFINED
+                )
+            }
+        } catch (_: Exception) {
+            ExifInterface.ORIENTATION_UNDEFINED
+        }
+
+    private fun rotateBitmap(
+        bitmap: Bitmap,
+        rotationDegrees: Float = 0f,
+        flipX: Boolean = false,
+        flipY: Boolean = false
+    ): Bitmap {
+        if (rotationDegrees == 0f && !flipX && !flipY) return bitmap
+        val matrix = Matrix().apply {
+            if (rotationDegrees != 0f) postRotate(rotationDegrees)
+            if (flipX || flipY) {
+                postScale(if (flipX) -1f else 1f, if (flipY) -1f else 1f)
+            }
+        }
+        val transformed = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        if (transformed !== bitmap && !bitmap.isRecycled) {
+            bitmap.recycle()
+        }
+        return transformed
+    }
 
     override fun render(
         canvas: Canvas,
