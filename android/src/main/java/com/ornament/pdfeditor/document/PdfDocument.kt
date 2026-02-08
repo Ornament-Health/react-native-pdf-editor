@@ -19,6 +19,7 @@ import com.ornament.pdfeditor.drawing.BezierCurve
 import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import kotlin.collections.ArrayDeque
 import kotlin.math.max
 import kotlin.math.min
 
@@ -44,6 +45,7 @@ class PdfDocument(
     private val bitmapPages = mutableMapOf<Int, Bitmap>()
     private val boundsOfPages = mutableMapOf<Int, RectF>()
     private val pagesDrawing = mutableListOf<Pair<Int, BezierCurve>>()
+    private val redoStack = ArrayDeque<Pair<Int, BezierCurve>>()
 
 
     override fun save(outputDirectory: String, options: PDFEditorOptions, excludedPages: Set<Int>): String? {
@@ -109,6 +111,7 @@ class PdfDocument(
         }
         pageIndex?.let { index ->
             pagesDrawing.add(index to drawing)
+            redoStack.clear()
         }
     }
 
@@ -203,14 +206,20 @@ class PdfDocument(
         boundsOfPages.clear()
         bitmapPages.clear()
         pagesDrawing.clear()
+        redoStack.clear()
     }
 
     override fun undo() {
-        pagesDrawing.removeLastOrNull()
+        pagesDrawing.removeLastOrNull()?.let { redoStack.addLast(it) }
+    }
+
+    override fun redo() {
+        redoStack.removeLastOrNull()?.let { pagesDrawing.add(it) }
     }
 
     override fun clear() {
         pagesDrawing.clear()
+        redoStack.clear()
     }
 
     override fun pageBounds(): Map<Int, RectF> = boundsOfPages.toMap()

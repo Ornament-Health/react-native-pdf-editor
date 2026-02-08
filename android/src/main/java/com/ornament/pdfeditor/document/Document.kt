@@ -42,6 +42,8 @@ abstract class Document {
 
     abstract fun undo()
 
+    abstract fun redo()
+
     abstract fun clear()
 
     abstract fun pageBounds(): Map<Int, RectF>

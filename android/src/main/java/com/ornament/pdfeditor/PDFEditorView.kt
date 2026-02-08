@@ -1,7 +1,6 @@
 package com.ornament.pdfeditor
 
 import android.content.Context
-import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -14,10 +13,9 @@ import android.util.Log
 import android.util.Size
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import androidx.appcompat.widget.AppCompatImageButton
 import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.core.view.isGone
 import androidx.core.view.isVisible
-import androidx.core.widget.ImageViewCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.itextpdf.kernel.utils.XmlProcessorCreator
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
@@ -42,17 +40,22 @@ import kotlin.math.sqrt
 class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private var editMode: Boolean = false
     fun setEditMode(isEdit: Boolean) {
+        val enteringEditMode = !editMode && isEdit
         editMode = isEdit
         updateBottomControlsVisibility()
+        if (enteringEditMode) {
+            clearHistoryStacks()
+        }
+        updateUndoRedoButtons()
     }
 
     private fun updateBottomControlsVisibility() {
         binding.editControlsContainer.isVisible = editMode
         binding.previewList.isVisible = !editMode
-        
+
         // Force FrameLayout to remeasure its children
         binding.bottomControls.requestLayout()
-        
+
         // Force LinearLayout to measure with proper specs
         if (editMode) {
             val widthSpec = android.view.View.MeasureSpec.makeMeasureSpec(
@@ -66,10 +69,28 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             binding.editControlsContainer.measure(widthSpec, heightSpec)
             binding.editControlsContainer.layout(0, 0, binding.bottomControls.width, binding.bottomControls.height)
         }
-        
+
         binding.bottomControls.post {
             // Layout measurement complete
         }
+    }
+
+    private fun clearHistoryStacks() {
+        operationList.clear()
+        redoOperationList.clear()
+        updateUndoRedoButtons()
+    }
+
+    private fun updateUndoRedoButtons() {
+        val canUndo = editMode && operationList.isNotEmpty()
+        val canRedo = editMode && redoOperationList.isNotEmpty()
+        setButtonState(binding.btnUndo, canUndo)
+        setButtonState(binding.btnRedo, canRedo)
+    }
+
+    private fun setButtonState(button: AppCompatImageButton, enabled: Boolean) {
+        button.isEnabled = enabled
+        button.alpha = if (enabled) 1f else DISABLED_ALPHA
     }
 
     private fun applySelectionIconColor() {
@@ -95,6 +116,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         private const val ACTION_TAG = "ACTION"
         private const val MARGIN = 20f
         private const val MAX_SCALE = 5f
+        private const val DISABLED_ALPHA = 0.4f
     }
 
     private val outputDirectory =
@@ -118,6 +140,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private var selectionIconColor: Int = Color.WHITE
 
     private val operationList = mutableListOf<Int>()
+    private val redoOperationList = mutableListOf<Int>()
 
     private var movementDifference = PointF(0f, 0f)
     private var currentFilePaths = listOf<String>()
@@ -146,23 +169,23 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         binding.viewPort.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             updateViewPortSize()
         }
-        
+
         // Setup edit controls
         binding.btnUndo.setOnClickListener {
             undo()
         }
         binding.btnRedo.setOnClickListener {
-            // Redo functionality would go here if implemented
-            // For now, this matches the iOS implementation which only has undo
+            redo()
         }
         applySelectionIconColor()
         updateBottomControlsVisibility()
+        updateUndoRedoButtons()
     }
 
     private fun reset() {
         scale = 1f
         movementDifference = PointF(0f, 0f)
-        operationList.clear()
+        clearHistoryStacks()
         documents.forEach { it.reset() }
         lastPageBounds = emptyMap()
     }
@@ -229,8 +252,27 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
 
     fun undo() {
+        if (!editMode) {
+            updateUndoRedoButtons()
+            return
+        }
         operationList.removeLastOrNull()?.let {
             documents[it].undo()
+            redoOperationList.add(it)
+            updateUndoRedoButtons()
+            render()
+        }
+    }
+
+    fun redo() {
+        if (!editMode) {
+            updateUndoRedoButtons()
+            return
+        }
+        redoOperationList.removeLastOrNull()?.let {
+            documents[it].redo()
+            operationList.add(it)
+            updateUndoRedoButtons()
             render()
         }
     }
@@ -253,8 +295,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
 
     fun clear() {
-        operationList.clear()
         documents.forEach { it.clear() }
+        clearHistoryStacks()
         render()
     }
 
@@ -634,6 +676,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             document.addDrawing(point, it)
         }
         operationList.add(activeDocumentIndex)
+        redoOperationList.clear()
+        updateUndoRedoButtons()
     }
 
     private fun drawOnDocuments(point: PointF) {
@@ -681,7 +725,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             }
         }
         documents.clear()
-        operationList.clear()
+        clearHistoryStacks()
         activeDocumentIndex = 0
         recycleDocumentPreviews()
     }
