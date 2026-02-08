@@ -11,6 +11,7 @@ class ContainerView: UIView {
   private var editControlsContainer: UIView!
   private var undoButton: UIButton!
   private var redoButton: UIButton!
+  private let editControlDisabledAlpha: CGFloat = 0.4
 
   // MARK: - Configuration
   @objc var options: [String: Any] = [:] {
@@ -23,11 +24,15 @@ class ContainerView: UIView {
   @objc var onError: RCTDirectEventBlock?
 
   // MARK: - Drawing & Documents
-  private let pdfDrawer = PDFDrawer()
+  private var pdfDrawers: [Int: PDFDrawer] = [:]
+  private var activeDrawer: PDFDrawer?
+  private var drawerColor: UIColor = .red
+  private var drawerWidth: CGFloat = 5
+  private var drawerAlpha: CGFloat = 0.3
   private var filePaths = [String]()
   private var documents = [RNPDFDocument]()
   private var currentDocumentIndex = 0
-  private var documentDrawings: [Int: [Any]] = [:]
+  private var documentHistoryStates: [Int: PDFDrawer.HistoryState] = [:]
   private var excludedPages: [Int: Set<Int>] = [:]
   private var selectionIconColor: UIColor = .white
 
@@ -44,6 +49,7 @@ class ContainerView: UIView {
   }
 
   func setEditMode(_ isEdit: Bool) {
+    let stateChanged = self.isEditMode != isEdit
     self.isEditMode = isEdit
     pdfView.setDrawingEnabled(isEdit)
 
@@ -54,6 +60,10 @@ class ContainerView: UIView {
     }
 
     updateBottomControlsVisibility()
+
+    if stateChanged {
+      activeDrawer?.markBaseline()
+    }
   }
 
   private func updateBottomControlsVisibility() {
@@ -74,6 +84,16 @@ class ContainerView: UIView {
 
     undoButton.setTitleColor(.clear, for: .normal)
     redoButton.setTitleColor(.clear, for: .normal)
+  }
+
+  private func updateUndoRedoButtons(canUndo: Bool, canRedo: Bool) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      self.undoButton?.isEnabled = canUndo
+      self.undoButton?.superview?.alpha = canUndo ? 1.0 : self.editControlDisabledAlpha
+      self.redoButton?.isEnabled = canRedo
+      self.redoButton?.superview?.alpha = canRedo ? 1.0 : self.editControlDisabledAlpha
+    }
   }
 
   private func makeEditControlsContainer() -> UIView {
@@ -111,6 +131,8 @@ class ContainerView: UIView {
     undoButton.tintColor = .clear
     undoButton.backgroundColor = .clear
     undoButton.contentEdgeInsets = .zero
+    undoButton.addTarget(self, action: #selector(handleUndoButtonTap), for: .touchUpInside)
+    undoButton.isEnabled = false
 
     // Place the button over the background view to capture taps
     undoBackgroundView.addSubview(undoButton)
@@ -152,6 +174,8 @@ class ContainerView: UIView {
     redoButton.tintColor = .clear
     redoButton.backgroundColor = .clear
     redoButton.contentEdgeInsets = .zero
+    redoButton.addTarget(self, action: #selector(handleRedoButtonTap), for: .touchUpInside)
+    redoButton.isEnabled = false
 
     // Place the button over the background view to capture taps
     redoBackgroundView.addSubview(redoButton)
@@ -188,11 +212,21 @@ class ContainerView: UIView {
     self.redoButton = redoButton
     self.editControlsContainer = containerView
     applySelectionIconColor()
+    updateUndoRedoButtons(canUndo: false, canRedo: false)
 
     return containerView
   }
 
+  @objc private func handleUndoButtonTap() {
+    undo()
+  }
+
+  @objc private func handleRedoButtonTap() {
+    activeDrawer?.redo()
+  }
+
   private func setupView() {
+
     let pdfView = NonSelectablePDFView()
     pdfView.backgroundColor = .clear
     pdfView.translatesAutoresizingMaskIntoConstraints = false
@@ -231,12 +265,15 @@ class ContainerView: UIView {
     self.pdfView = pdfView
     self.fileSwitcher = fileSwitcher
     updateBottomControlsVisibility()
+    updateUndoRedoButtons(canUndo: false, canRedo: false)
   }
 
   private func updateWithOptions(_ options: [String: Any]) {
     documents.removeAll()
     excludedPages.removeAll()
-    documentDrawings.removeAll()
+    documentHistoryStates.removeAll()
+    pdfDrawers.removeAll()
+    activeDrawer = nil
     filePaths.removeAll()
     currentDocumentIndex = 0
     pdfView.clearPageIndicators()
@@ -254,13 +291,15 @@ class ContainerView: UIView {
     }
 
     if let lineColor = options["lineColor"] as? String {
-      pdfDrawer.color = UIColor(hexString: lineColor)
+      drawerColor = UIColor(hexString: lineColor)
+      refreshDrawerAppearances()
     } else {
       print("RNPDFEditor: \"lineColor\" value is wrong")
     }
 
     if let lineWidth = options["lineWidth"] as? Float {
-      pdfDrawer.width = CGFloat(lineWidth)
+      drawerWidth = CGFloat(lineWidth)
+      refreshDrawerAppearances()
     } else {
       print("RNPDFEditor: \"lineWidth\" value is wrong")
     }
@@ -308,15 +347,18 @@ class ContainerView: UIView {
 
       DispatchQueue.main.async {
         self.pdfView.isHidden = false
-        self.pdfView.drawingDelegate = self.pdfDrawer
         self.pdfView.document = convertedDocument
         self.pdfView.disableSelection(in: self.pdfView)
         self.pdfView.onTogglePage = { [weak self] pageIndex in
           self?.togglePageExclusion(pageIndex: pageIndex)
         }
 
-        self.pdfDrawer.pdfView = self.pdfView
-        self.pdfDrawer.clear()
+        self.activeDrawer?.pdfView = nil
+        let drawer = self.drawer(for: document)
+        drawer.pdfView = self.pdfView
+        self.pdfView.drawingDelegate = drawer
+        self.activeDrawer = drawer
+        self.applyStoredHistoryState(for: document)
 
         // Reset pan/zoom on document load
         self.pdfView.goToFirstPage(nil)
@@ -327,6 +369,43 @@ class ContainerView: UIView {
         self.configurePageIndicators(for: document)
       }
     }
+  }
+
+  private func drawer(for document: RNPDFDocument) -> PDFDrawer {
+    if let drawer = pdfDrawers[document.id] {
+      configureDrawerAppearance(drawer)
+      drawer.historyDelegate = self
+      return drawer
+    }
+
+    let drawer = PDFDrawer()
+    configureDrawerAppearance(drawer)
+    drawer.historyDelegate = self
+    drawer.markBaseline()
+    pdfDrawers[document.id] = drawer
+    return drawer
+  }
+
+  private func applyStoredHistoryState(for document: RNPDFDocument) {
+    if let state = documentHistoryStates[document.id] {
+      updateUndoRedoButtons(canUndo: state.canUndo, canRedo: state.canRedo)
+    } else {
+      updateUndoRedoButtons(canUndo: false, canRedo: false)
+    }
+  }
+
+  private func configureDrawerAppearance(_ drawer: PDFDrawer?) {
+    guard let drawer = drawer else { return }
+    drawer.color = drawerColor
+    drawer.width = drawerWidth
+    drawer.alpha = drawerAlpha
+  }
+
+  private func refreshDrawerAppearances() {
+    for drawer in pdfDrawers.values {
+      configureDrawerAppearance(drawer)
+    }
+    configureDrawerAppearance(activeDrawer)
   }
 
   @objc func save() {
@@ -482,11 +561,15 @@ class ContainerView: UIView {
 extension ContainerView {
 
   func undo() {
-    pdfDrawer.undo()
+    activeDrawer?.undo()
+  }
+
+  func redo() {
+    activeDrawer?.redo()
   }
 
   func clear() {
-    pdfDrawer.clear()
+    activeDrawer?.clear()
   }
 }
 
@@ -498,6 +581,15 @@ extension ContainerView: FileSwitcherDelegate {
 }
 
 // MARK: - Helpers
+extension ContainerView: PDFDrawerHistoryDelegate {
+  func pdfDrawer(_ drawer: PDFDrawer, historyDidChange state: PDFDrawer.HistoryState) {
+    if let entry = pdfDrawers.first(where: { $0.value === drawer }) {
+      documentHistoryStates[entry.key] = state
+    }
+    updateUndoRedoButtons(canUndo: state.canUndo, canRedo: state.canRedo)
+  }
+}
+
 extension ContainerView {
   fileprivate func scrollViewIfPresent() -> UIScrollView? {
     return pdfView.subviews.compactMap { $0 as? UIScrollView }.first
