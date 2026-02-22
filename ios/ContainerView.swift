@@ -105,7 +105,7 @@ class ContainerView: UIView {
     let undoBackgroundView = UIView()
     undoBackgroundView.translatesAutoresizingMaskIntoConstraints = false
     undoBackgroundView.backgroundColor = undoRedoIconColor
-    undoBackgroundView.layer.cornerRadius = 28
+    undoBackgroundView.layer.cornerRadius = 18
     undoBackgroundView.clipsToBounds = true
 
     let undoButton = UIButton(type: .system)
@@ -148,7 +148,7 @@ class ContainerView: UIView {
     let redoBackgroundView = UIView()
     redoBackgroundView.translatesAutoresizingMaskIntoConstraints = false
     redoBackgroundView.backgroundColor = undoRedoIconColor
-    redoBackgroundView.layer.cornerRadius = 28
+    redoBackgroundView.layer.cornerRadius = 18
     redoBackgroundView.clipsToBounds = true
 
     let redoButton = UIButton(type: .system)
@@ -203,10 +203,10 @@ class ContainerView: UIView {
         greaterThanOrEqualTo: containerView.leadingAnchor, constant: 16),
       stack.trailingAnchor.constraint(
         lessThanOrEqualTo: containerView.trailingAnchor, constant: -16),
-      undoBackgroundView.widthAnchor.constraint(equalToConstant: 56),
-      undoBackgroundView.heightAnchor.constraint(equalToConstant: 56),
-      redoBackgroundView.widthAnchor.constraint(equalToConstant: 56),
-      redoBackgroundView.heightAnchor.constraint(equalToConstant: 56),
+      undoBackgroundView.widthAnchor.constraint(equalToConstant: 36),
+      undoBackgroundView.heightAnchor.constraint(equalToConstant: 36),
+      redoBackgroundView.widthAnchor.constraint(equalToConstant: 36),
+      redoBackgroundView.heightAnchor.constraint(equalToConstant: 36),
     ])
 
     self.undoButton = undoButton
