@@ -481,10 +481,12 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
 
     document.pageBounds().forEach { (index, rect) ->
-      if (excluded.contains(index)) {
+      val isExcluded = excluded.contains(index)
+      if (isExcluded) {
         canvas.drawRect(rect, shadePaint)
       }
-      drawSelectionIcon(canvas, rect, iconPaint, iconBgPaint, excluded.contains(index))
+      iconPaint.color = if (isExcluded) selectionIconColor else Color.WHITE
+      drawSelectionIcon(canvas, rect, iconPaint, iconBgPaint, isExcluded)
     }
   }
 
