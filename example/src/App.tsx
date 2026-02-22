@@ -87,9 +87,15 @@ export default function App() {
   };
 
   const options: RNComponentProps['options'] = {
-    filePath: selectedFiles,
-    lineColor: '#ea1d54',
-    lineWidth: 10,
+    files: selectedFiles,
+    drawLine: {
+      width: 30,
+      color: '#ea1d54',
+    },
+    icons: {
+      unselectedColor: '#ea1d54',
+      undoRedoColor: '#f5c527',
+    },
   };
 
   return (

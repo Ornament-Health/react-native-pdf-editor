@@ -35,6 +35,7 @@ class ContainerView: UIView {
   private var documentHistoryStates: [Int: PDFDrawer.HistoryState] = [:]
   private var excludedPages: [Int: Set<Int>] = [:]
   private var selectionIconColor: UIColor = .white
+  private var undoRedoIconColor: UIColor = .white
 
   // MARK: - Gesture Recognizers
   private var isEditMode: Bool = false
@@ -71,12 +72,12 @@ class ContainerView: UIView {
     editControlsContainer?.isHidden = !isEditMode
   }
 
-  private func applySelectionIconColor() {
+  private func applyUndoRedoColor() {
     guard let undoButton = undoButton, let redoButton = redoButton else { return }
 
     // Update circular background colors
-    undoButton.superview?.backgroundColor = selectionIconColor
-    redoButton.superview?.backgroundColor = selectionIconColor
+    undoButton.superview?.backgroundColor = undoRedoIconColor
+    redoButton.superview?.backgroundColor = undoRedoIconColor
 
     if #available(iOS 13.0, *) {
       return
@@ -103,7 +104,7 @@ class ContainerView: UIView {
     // Create circular background view for undo button
     let undoBackgroundView = UIView()
     undoBackgroundView.translatesAutoresizingMaskIntoConstraints = false
-    undoBackgroundView.backgroundColor = selectionIconColor
+    undoBackgroundView.backgroundColor = undoRedoIconColor
     undoBackgroundView.layer.cornerRadius = 28
     undoBackgroundView.clipsToBounds = true
 
@@ -146,7 +147,7 @@ class ContainerView: UIView {
     // Create circular background view for redo button
     let redoBackgroundView = UIView()
     redoBackgroundView.translatesAutoresizingMaskIntoConstraints = false
-    redoBackgroundView.backgroundColor = selectionIconColor
+    redoBackgroundView.backgroundColor = undoRedoIconColor
     redoBackgroundView.layer.cornerRadius = 28
     redoBackgroundView.clipsToBounds = true
 
@@ -211,7 +212,7 @@ class ContainerView: UIView {
     self.undoButton = undoButton
     self.redoButton = redoButton
     self.editControlsContainer = containerView
-    applySelectionIconColor()
+    applyUndoRedoColor()
     updateUndoRedoButtons(canUndo: false, canRedo: false)
 
     return containerView
@@ -278,7 +279,7 @@ class ContainerView: UIView {
     currentDocumentIndex = 0
     pdfView.clearPageIndicators()
 
-    if let arrayOfPaths = options["filePath"] as? [String] {
+    if let arrayOfPaths = options["files"] as? [String] {
       filePaths = arrayOfPaths
       for (index, value) in filePaths.enumerated() {
         if let document = RNPDFDocument(id: index, path: value) {
@@ -287,30 +288,44 @@ class ContainerView: UIView {
       }
       self.renderDocuments(for: documents)
     } else {
-      print("RNPDFEditor: \"filePath\" value is wrong")
+      print("RNPDFEditor: \"files\" value is wrong")
     }
 
-    if let lineColor = options["lineColor"] as? String {
-      drawerColor = UIColor(hexString: lineColor)
-      refreshDrawerAppearances()
-    } else {
-      print("RNPDFEditor: \"lineColor\" value is wrong")
+    if let drawLine = options["drawLine"] as? [String: Any] {
+      if let lineColor = drawLine["color"] as? String {
+        drawerColor = UIColor(hexString: lineColor)
+        refreshDrawerAppearances()
+      }
+      if let lineWidth = drawLine["width"] as? Float {
+        drawerWidth = CGFloat(lineWidth)
+        refreshDrawerAppearances()
+      } else if let lineWidth = drawLine["width"] as? Double {
+        drawerWidth = CGFloat(lineWidth)
+        refreshDrawerAppearances()
+      } else if let lineWidth = drawLine["width"] as? NSNumber {
+        drawerWidth = CGFloat(truncating: lineWidth)
+        refreshDrawerAppearances()
+      }
     }
 
-    if let lineWidth = options["lineWidth"] as? Float {
-      drawerWidth = CGFloat(lineWidth)
-      refreshDrawerAppearances()
-    } else {
-      print("RNPDFEditor: \"lineWidth\" value is wrong")
-    }
+    if let icons = options["icons"] as? [String: Any] {
+      if let iconColor = icons["unselectedColor"] as? String {
+        selectionIconColor = UIColor(hexString: iconColor)
+      } else {
+        selectionIconColor = .white
+      }
 
-    if let iconColor = options["selectionIconColor"] as? String {
-      selectionIconColor = UIColor(hexString: iconColor)
+      if let undoRedoColor = icons["undoRedoColor"] as? String {
+        undoRedoIconColor = UIColor(hexString: undoRedoColor)
+      } else {
+        undoRedoIconColor = .white
+      }
     } else {
       selectionIconColor = .white
+      undoRedoIconColor = .white
     }
 
-    applySelectionIconColor()
+    applyUndoRedoColor()
   }
 
   private func renderDocuments(for documents: [RNPDFDocument]) {

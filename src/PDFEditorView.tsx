@@ -17,18 +17,28 @@ import type { Float } from 'react-native/Libraries/Types/CodegenTypes';
 const ComponentName = 'RNPDFEditorView';
 
 const DEFAULT_OPTIONS = {
-  lineColor: '#FF0000',
-  lineWidth: 5 as Float,
-  selectionIconColor: '#FFFFFF',
+  drawLine: {
+    color: '#555555',
+    width: 10 as Float,
+  },
+  icons: {
+    unselectedColor: '#FFFFFF',
+    undoRedoColor: '#FFFFFF',
+  },
 };
 
 export interface RNComponentProps {
   style: StyleProp<ViewStyle>;
   options: {
-    filePath: string[];
-    lineColor?: string;
-    lineWidth?: Float;
-    selectionIconColor?: string;
+    files: string[];
+    drawLine?: {
+      color?: string;
+      width?: Float;
+    };
+    icons?: {
+      unselectedColor?: string;
+      undoRedoColor?: string;
+    };
   };
   onSavePDF?(url: string[] | null): void;
 }
@@ -53,6 +63,14 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
     const mergedOptions = {
       ...DEFAULT_OPTIONS,
       ...options,
+      drawLine: {
+        ...DEFAULT_OPTIONS.drawLine,
+        ...(options.drawLine ?? {}),
+      },
+      icons: {
+        ...DEFAULT_OPTIONS.icons,
+        ...(options.icons ?? {}),
+      },
     };
     useImperativeHandle(extRef, () => ({
       undoAction,

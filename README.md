@@ -11,15 +11,21 @@ cd ios && pod install   # для iOS
 
 ## Usage
 
-Pass an array of file paths and brush settings. Set background color via `style`; native views are transparent.
+Pass an array of file paths and brush settings (nested under `drawLine`), plus icon colors (nested under `icons`). Set background color via `style`; native views are transparent.
 
 ```typescript
 import { PDFEditorView } from '@ornament-health/react-native-pdf-editor';
 
 const options = {
-  filePath: ['/path/to/file1.pdf', '/path/to/file2.png'], // required array of paths
-  lineColor: '#4287f5', // optional, defaults to '#FF0000'
-  lineWidth: 40, // optional, defaults to 5
+  files: ['/path/to/file1.pdf', '/path/to/file2.png'], // required array of paths
+  drawLine: {
+    color: '#4287f5', // optional, defaults to '#555555'
+    width: 40, // optional, defaults to 10
+  },
+  icons: {
+    unselectedColor: '#FFFFFF', // optional, defaults to '#FFFFFF'
+    undoRedoColor: '#FFFFFF', // optional, defaults to '#FFFFFF'
+  },
 };
 
 <PDFEditorView
