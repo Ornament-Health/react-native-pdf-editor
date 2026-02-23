@@ -12,7 +12,7 @@ import DocumentPicker, {
 import RNFS from 'react-native-fs';
 import {
   PDFEditorView,
-  RNComponentProps,
+  PDFEditorOptions,
 } from '@ornament-health/react-native-pdf-editor';
 
 type PDFEVRef = ComponentRef<typeof PDFEditorView>;
@@ -86,7 +86,7 @@ export default function App() {
     }
   };
 
-  const options: RNComponentProps['options'] = {
+  const options: PDFEditorOptions = {
     files: selectedFiles,
     drawLine: {
       width: 30,

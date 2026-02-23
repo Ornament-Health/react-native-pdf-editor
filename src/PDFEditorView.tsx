@@ -27,20 +27,22 @@ const DEFAULT_OPTIONS = {
   },
 };
 
-export interface RNComponentProps {
-  style: StyleProp<ViewStyle>;
-  options: {
-    files: string[];
-    drawLine?: {
-      color?: string;
-      width?: Float;
-    };
-    icons?: {
-      unselectedColor?: string;
-      undoRedoColor?: string;
-    };
+export interface PDFEditorOptions {
+  files: string[];
+  drawLine?: {
+    color?: string;
+    width?: Float;
   };
-  onSavePDF?(url: string[] | null): void;
+  icons?: {
+    unselectedColor?: string;
+    undoRedoColor?: string;
+  };
+}
+
+interface RNComponentProps {
+  style: StyleProp<ViewStyle>;
+  options: PDFEditorOptions;
+  onSavePDF?: (url: string[] | null) => void;
 }
 
 interface ExtRef {
