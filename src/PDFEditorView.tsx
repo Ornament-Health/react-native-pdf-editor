@@ -101,7 +101,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
             ? (UIManager.getViewManagerConfig(ComponentName).Commands
                 .undoAction as number)
             : 'undoAction',
-          undefined
+          []
         );
       }
     };
@@ -114,7 +114,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
             ? (UIManager.getViewManagerConfig(ComponentName).Commands
                 .clearAction as number)
             : 'clearAction',
-          undefined
+          []
         );
       }
     };
@@ -127,7 +127,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
             ? (UIManager.getViewManagerConfig(ComponentName).Commands
                 .saveAction as number)
             : 'saveAction',
-          undefined
+          []
         );
       }
     };
