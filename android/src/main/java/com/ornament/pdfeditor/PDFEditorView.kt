@@ -117,6 +117,10 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     private const val MARGIN = 20f
     private const val MAX_SCALE = 5f
     private const val DISABLED_ALPHA = 0.4f
+    private const val PAGE_ICON_SIZE_DP = 28f
+    private const val PAGE_ICON_INSET_DP = 8f
+    private const val PAGE_ICON_EDGE_PADDING_DP = 8f
+    private const val PAGE_ICON_BOTTOM_HIDE_THRESHOLD_DP = 8f
   }
 
   private val outputDirectory =
@@ -480,34 +484,47 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       isAntiAlias = true
     }
 
+    val viewportRect = RectF(0f, 0f, viewPort.width.toFloat(), viewPort.height.toFloat())
+
     document.pageBounds().forEach { (index, rect) ->
+      val pageVisibleRect = RectF()
+      val isPageVisible = pageVisibleRect.setIntersect(rect, viewportRect)
+      if (!isPageVisible || pageVisibleRect.isEmpty) return@forEach
+
       val isExcluded = excluded.contains(index)
       if (isExcluded) {
-        canvas.drawRect(rect, shadePaint)
+        canvas.drawRect(pageVisibleRect, shadePaint)
       }
       iconPaint.color = if (isExcluded) selectionIconColor else Color.WHITE
-      drawSelectionIcon(canvas, rect, iconPaint, iconBgPaint, isExcluded)
+      drawSelectionIcon(canvas, rect, pageVisibleRect, iconPaint, iconBgPaint, isExcluded)
     }
   }
 
   private fun dpToPx(value: Float): Float = value * resources.displayMetrics.density
 
-  private fun iconHitRect(pageRect: RectF): RectF {
-    val size = dpToPx(28f)
-    val inset = dpToPx(8f)
-    return RectF(
-      pageRect.right - inset - size,
-      pageRect.top + inset,
-      pageRect.right - inset,
-      pageRect.top + inset + size
+  private fun iconHitRect(pageRect: RectF, pageVisibleRect: RectF): RectF? {
+    val proposed = baseIconRect(pageRect)
+    return clampedIconRect(
+      proposedRect = proposed,
+      visibleRect = pageVisibleRect,
+      edgePaddingPx = dpToPx(PAGE_ICON_EDGE_PADDING_DP),
+      bottomHideThresholdPx = dpToPx(PAGE_ICON_BOTTOM_HIDE_THRESHOLD_DP)
     )
   }
 
   private fun handleSelectionTap(event: MotionEvent): Boolean {
     if (event.pointerCount > 1) return false
     if (lastPageBounds.isEmpty()) return false
+
+    val viewportRect = RectF(0f, 0f, viewPort.width.toFloat(), viewPort.height.toFloat())
+
     lastPageBounds.forEach { (index, rect) ->
-      if (iconHitRect(rect).contains(event.x, event.y)) {
+      val pageVisibleRect = RectF()
+      val isPageVisible = pageVisibleRect.setIntersect(rect, viewportRect)
+      if (!isPageVisible || pageVisibleRect.isEmpty) return@forEach
+
+      val hitRect = iconHitRect(rect, pageVisibleRect) ?: return@forEach
+      if (hitRect.contains(event.x, event.y)) {
         toggleExcludedPage(index)
         render(true)
         return true
@@ -528,15 +545,21 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     excludedPages[activeDocumentIndex] = current
   }
 
-  private fun drawSelectionIcon(canvas: Canvas, pageRect: RectF, paint: Paint, bgPaint: Paint, isExcluded: Boolean) {
-    val size = dpToPx(24f)
-    val inset = dpToPx(8f)
-    val iconRect = RectF(
-      pageRect.right - inset - size,
-      pageRect.top + inset,
-      pageRect.right - inset,
-      pageRect.top + inset + size
-    )
+  private fun drawSelectionIcon(
+    canvas: Canvas,
+    pageRect: RectF,
+    pageVisibleRect: RectF,
+    paint: Paint,
+    bgPaint: Paint,
+    isExcluded: Boolean
+  ) {
+    val iconRect = clampedIconRect(
+      proposedRect = baseIconRect(pageRect),
+      visibleRect = pageVisibleRect,
+      edgePaddingPx = dpToPx(PAGE_ICON_EDGE_PADDING_DP),
+      bottomHideThresholdPx = dpToPx(PAGE_ICON_BOTTOM_HIDE_THRESHOLD_DP)
+    ) ?: return
+
     val circleRect = RectF(iconRect).apply { inset(dpToPx(2f), dpToPx(2f)) }
     canvas.drawOval(circleRect, bgPaint)
     canvas.drawOval(circleRect, paint)
@@ -564,6 +587,51 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         paint
       )
     }
+  }
+
+  private fun baseIconRect(pageRect: RectF): RectF {
+    val size = dpToPx(PAGE_ICON_SIZE_DP)
+    val inset = dpToPx(PAGE_ICON_INSET_DP)
+    return RectF(
+      pageRect.right - inset - size,
+      pageRect.top + inset,
+      pageRect.right - inset,
+      pageRect.top + inset + size
+    )
+  }
+
+  private fun clampedIconRect(
+    proposedRect: RectF,
+    visibleRect: RectF,
+    edgePaddingPx: Float,
+    bottomHideThresholdPx: Float
+  ): RectF? {
+    if (visibleRect.isEmpty) return null
+
+    if (proposedRect.bottom > visibleRect.bottom - bottomHideThresholdPx) {
+      return null
+    }
+
+    val paddedRect = RectF(
+      visibleRect.left + edgePaddingPx,
+      visibleRect.top + edgePaddingPx,
+      visibleRect.right - edgePaddingPx,
+      visibleRect.bottom - edgePaddingPx
+    )
+
+    if (paddedRect.width() < proposedRect.width() || paddedRect.height() < proposedRect.height()) {
+      return null
+    }
+
+    val left = proposedRect.left.coerceIn(paddedRect.left, paddedRect.right - proposedRect.width())
+    val top = proposedRect.top.coerceIn(paddedRect.top, paddedRect.bottom - proposedRect.height())
+
+    return RectF(
+      left,
+      top,
+      left + proposedRect.width(),
+      top + proposedRect.height()
+    )
   }
 
 

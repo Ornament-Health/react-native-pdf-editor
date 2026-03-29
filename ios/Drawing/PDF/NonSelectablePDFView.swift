@@ -147,22 +147,56 @@ class NonSelectablePDFView: PDFView {
 
     ensureScrollObservers()
 
+    guard let scrollView = scrollViewIfPresent() else {
+      clearPageIndicators()
+      return
+    }
+
+    let contentFrameInSelf = scrollView.frame
+
     for index in 0..<document.pageCount {
       guard let page = document.page(at: index) else { continue }
+
       let pageRect = convert(page.bounds(for: .cropBox), from: page)
       if pageRect.isEmpty { continue }
 
+      let visibleRect = contentFrameInSelf.intersection(pageRect)
+      let isVisible = !visibleRect.isEmpty && !visibleRect.isNull
+
       let shade = pageShades[index] ?? makeShadeView()
-      shade.frame = pageRect
-      shade.isHidden = !excludedPages.contains(index)
-      if shade.superview == nil { addSubview(shade) }
+      shade.frame = visibleRect
+      shade.isHidden = !excludedPages.contains(index) || !isVisible
+      if shade.superview !== self {
+        shade.removeFromSuperview()
+        addSubview(shade)
+      }
       pageShades[index] = shade
 
       let button = pageButtons[index] ?? makeIconButton()
       button.tag = index
-      button.frame = iconFrame(for: pageRect, size: 28, inset: 8)
       button.setImage(iconImage(isExcluded: excludedPages.contains(index)), for: .normal)
-      if button.superview == nil { addSubview(button) }
+
+      if isVisible {
+        let proposedFrame = iconFrame(for: pageRect, size: 28, inset: 8)
+        if let clampedFrame = clampedIconFrame(
+          proposedFrame,
+          in: visibleRect,
+          edgePadding: 8,
+          bottomHideThreshold: 8
+        ) {
+          button.frame = clampedFrame
+          button.isHidden = false
+        } else {
+          button.isHidden = true
+        }
+      } else {
+        button.isHidden = true
+      }
+
+      if button.superview !== self {
+        button.removeFromSuperview()
+        addSubview(button)
+      }
       bringSubviewToFront(button)
       pageButtons[index] = button
     }
@@ -220,6 +254,34 @@ class NonSelectablePDFView: PDFView {
       width: size,
       height: size
     )
+  }
+
+  private func clampedIconFrame(
+    _ frame: CGRect,
+    in visibleRect: CGRect,
+    edgePadding: CGFloat,
+    bottomHideThreshold: CGFloat
+  ) -> CGRect? {
+    guard !visibleRect.isEmpty && !visibleRect.isNull else { return nil }
+
+    // Hide a bit earlier when approaching the bottom edge while scrolling.
+    if frame.maxY > visibleRect.maxY - bottomHideThreshold {
+      return nil
+    }
+
+    let paddedRect = visibleRect.insetBy(dx: edgePadding, dy: edgePadding)
+    guard !paddedRect.isEmpty && !paddedRect.isNull else { return nil }
+    guard paddedRect.width >= frame.width, paddedRect.height >= frame.height else { return nil }
+
+    let minX = paddedRect.minX
+    let maxX = paddedRect.maxX - frame.width
+    let minY = paddedRect.minY
+    let maxY = paddedRect.maxY - frame.height
+
+    let clampedX = min(max(frame.origin.x, minX), maxX)
+    let clampedY = min(max(frame.origin.y, minY), maxY)
+
+    return CGRect(x: clampedX, y: clampedY, width: frame.width, height: frame.height)
   }
 
   private func iconImage(isExcluded: Bool) -> UIImage? {
