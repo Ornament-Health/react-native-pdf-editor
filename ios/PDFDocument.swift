@@ -75,21 +75,11 @@ class RNPDFDocument {
       }
 
       let bounds = firstPage.bounds(for: .cropBox)
-      let thumbnailSize = CGSize(width: 80, height: 80 * bounds.height / bounds.width)
+      let safeWidth = max(bounds.width, 1)
+      let safeHeight = max(bounds.height, 1)
+      let thumbnailSize = CGSize(width: 80, height: 80 * safeHeight / safeWidth)
 
-      let renderer = UIGraphicsImageRenderer(size: thumbnailSize)
-      return renderer.image { context in
-        UIColor.white.set()
-        context.fill(CGRect(origin: .zero, size: thumbnailSize))
-
-        context.cgContext.saveGState()
-        let transform = CGAffineTransform(
-          scaleX: thumbnailSize.width / bounds.width,
-          y: thumbnailSize.height / bounds.height)
-        context.cgContext.concatenate(transform)
-        firstPage.draw(with: .cropBox, to: context.cgContext)
-        context.cgContext.restoreGState()
-      }
+      return firstPage.thumbnail(of: thumbnailSize, for: .cropBox)
     }
   }
 }

@@ -377,8 +377,15 @@ class ContainerView: UIView {
 
         // Reset pan/zoom on document load
         self.pdfView.goToFirstPage(nil)
-        self.resetZoomScales()
         self.configureScrollView()
+
+        // Defer zoom reset until layout is complete to avoid oversized initial render
+        self.setNeedsLayout()
+        self.layoutIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+          guard let self = self else { return }
+          self.resetZoomScales()
+        }
 
         self.fileSwitcher.selectFile(at: index)
         self.configurePageIndicators(for: document)
