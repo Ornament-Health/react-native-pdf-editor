@@ -4,9 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.PointF
-import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.os.Environment
 import android.util.Log
@@ -15,6 +13,9 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import androidx.appcompat.widget.AppCompatImageButton
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.itextpdf.kernel.utils.XmlProcessorCreator
@@ -39,89 +40,8 @@ import kotlin.math.sqrt
 
 class PDFEditorView(context: Context) : ConstraintLayout(context) {
   private var editMode: Boolean = false
-  fun setEditMode(isEdit: Boolean) {
-    val enteringEditMode = !editMode && isEdit
-    editMode = isEdit
-    updateBottomControlsVisibility()
-    if (enteringEditMode) {
-      clearHistoryStacks()
-    }
-    updateUndoRedoButtons()
-  }
-
-  private fun updateBottomControlsVisibility() {
-    binding.editControlsContainer.isVisible = editMode
-    binding.previewList.isVisible = !editMode
-
-    // Force FrameLayout to remeasure its children
-    binding.bottomControls.requestLayout()
-
-    // Force LinearLayout to measure with proper specs
-    if (editMode) {
-      val widthSpec = android.view.View.MeasureSpec.makeMeasureSpec(
-        binding.bottomControls.width,
-        android.view.View.MeasureSpec.EXACTLY
-      )
-      val heightSpec = android.view.View.MeasureSpec.makeMeasureSpec(
-        binding.bottomControls.height,
-        android.view.View.MeasureSpec.EXACTLY
-      )
-      binding.editControlsContainer.measure(widthSpec, heightSpec)
-      binding.editControlsContainer.layout(0, 0, binding.bottomControls.width, binding.bottomControls.height)
-    }
-
-    binding.bottomControls.post {
-      // Layout measurement complete
-    }
-  }
-
-  private fun clearHistoryStacks() {
-    operationList.clear()
-    redoOperationList.clear()
-    updateUndoRedoButtons()
-  }
-
-  private fun updateUndoRedoButtons() {
-    val canUndo = editMode && operationList.isNotEmpty()
-    val canRedo = editMode && redoOperationList.isNotEmpty()
-    setButtonState(binding.btnUndo, canUndo)
-    setButtonState(binding.btnRedo, canRedo)
-  }
-
-  private fun setButtonState(button: AppCompatImageButton, enabled: Boolean) {
-    button.isEnabled = enabled
-    button.alpha = if (enabled) 1f else DISABLED_ALPHA
-  }
-
-  private fun applyUndoRedoColor() {
-    try {
-      binding.btnUndo.setColorFilter(undoRedoIconColor)
-      binding.btnRedo.setColorFilter(undoRedoIconColor)
-    } catch (e: Exception) {
-      Log.e("PDFEditorView", "Error applying color: ${e.message}")
-    }
-  }
-
-  fun setExcludedPages(documentIndex: Int, pages: List<Int>) {
-    val document = documents.getOrNull(documentIndex) ?: return
-    val filteredPages = if (document.pageCount > 0) {
-      pages.filter { it >= 0 && it < document.pageCount }.toSet()
-    } else {
-      pages.filter { it >= 0 }.toSet()
-    }
-    excludedPages[documentIndex] = filteredPages
-  }
-
-  companion object {
-    private const val ACTION_TAG = "ACTION"
-    private const val MARGIN = 20f
-    private const val MAX_SCALE = 5f
-    private const val DISABLED_ALPHA = 0.4f
-    private const val PAGE_ICON_SIZE_DP = 28f
-    private const val PAGE_ICON_INSET_DP = 8f
-    private const val PAGE_ICON_EDGE_PADDING_DP = 8f
-    private const val PAGE_ICON_BOTTOM_HIDE_THRESHOLD_DP = 8f
-  }
+  private var bottomOverlayInsetPx: Int = 0
+  private var systemBottomInsetPx: Int = 0
 
   private val outputDirectory =
     context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)?.absolutePath
@@ -136,7 +56,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   private var activeDocumentIndex = 0
 
   private val excludedPages = mutableMapOf<Int, Set<Int>>()
-  private var lastPageBounds: Map<Int, RectF> = emptyMap()
+  private var lastPageBounds: Map<Int, android.graphics.RectF> = emptyMap()
 
   private lateinit var options: PDFEditorOptions
   private var pendingOptions: PDFEditorOptions? = null
@@ -159,9 +79,17 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   private var scale: Float = 1f
     set(value) {
       previousScale = field
-      field = value.coerceAtLeast(1f).coerceAtMost(MAX_SCALE)
+      field = value.coerceAtLeast(1f).coerceAtMost(PDFEditorConstants.MAX_SCALE)
     }
   private var previousScale = scale
+
+  private val pageSelectionRenderer = PDFPageSelectionOverlayRenderer(
+    resources = resources,
+    pageIconSizeDp = PDFEditorConstants.PAGE_ICON_SIZE_DP,
+    pageIconInsetDp = PDFEditorConstants.PAGE_ICON_INSET_DP,
+    pageIconEdgePaddingDp = PDFEditorConstants.PAGE_ICON_EDGE_PADDING_DP,
+    pageIconBottomHideThresholdDp = PDFEditorConstants.PAGE_ICON_BOTTOM_HIDE_THRESHOLD_DP,
+  )
 
   init {
     XmlProcessorCreator.setXmlParserFactory(XmlParserFactory())
@@ -175,16 +103,127 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       updateViewPortSize()
     }
 
-    // Setup edit controls
     binding.btnUndo.setOnClickListener {
       undo()
     }
     binding.btnRedo.setOnClickListener {
       redo()
     }
+
     applyUndoRedoColor()
     updateBottomControlsVisibility()
     updateUndoRedoButtons()
+    installInsetsAndOverlayObservers()
+  }
+
+  fun setEditMode(isEdit: Boolean) {
+    val enteringEditMode = !editMode && isEdit
+    editMode = isEdit
+    updateBottomControlsVisibility()
+    if (enteringEditMode) {
+      clearHistoryStacks()
+    }
+    updateUndoRedoButtons()
+  }
+
+  private fun updateBottomControlsVisibility() {
+    binding.editControlsContainer.isVisible = editMode
+    binding.previewList.isVisible = !editMode
+    binding.bottomControls.isVisible = true
+
+    binding.bottomControls.requestLayout()
+
+    if (editMode) {
+      val widthSpec = android.view.View.MeasureSpec.makeMeasureSpec(
+        binding.bottomControls.width,
+        android.view.View.MeasureSpec.EXACTLY
+      )
+      val heightSpec = android.view.View.MeasureSpec.makeMeasureSpec(
+        binding.bottomControls.height,
+        android.view.View.MeasureSpec.EXACTLY
+      )
+      binding.editControlsContainer.measure(widthSpec, heightSpec)
+      binding.editControlsContainer.layout(0, 0, binding.bottomControls.width, binding.bottomControls.height)
+    }
+
+    binding.bottomControls.post {
+      updateViewportBottomInset()
+    }
+  }
+
+  private fun clearHistoryStacks() {
+    operationList.clear()
+    redoOperationList.clear()
+    updateUndoRedoButtons()
+  }
+
+  private fun updateUndoRedoButtons() {
+    val canUndo = editMode && operationList.isNotEmpty()
+    val canRedo = editMode && redoOperationList.isNotEmpty()
+    setButtonState(binding.btnUndo, canUndo)
+    setButtonState(binding.btnRedo, canRedo)
+  }
+
+  private fun setButtonState(button: AppCompatImageButton, enabled: Boolean) {
+    button.isEnabled = enabled
+    button.alpha = if (enabled) 1f else PDFEditorConstants.DISABLED_ALPHA
+  }
+
+  private fun applyUndoRedoColor() {
+    try {
+      binding.btnUndo.setColorFilter(undoRedoIconColor)
+      binding.btnRedo.setColorFilter(undoRedoIconColor)
+    } catch (e: Exception) {
+      Log.e("PDFEditorView", "Error applying color: ${e.message}")
+    }
+  }
+
+  fun setExcludedPages(documentIndex: Int, pages: List<Int>) {
+    val document = documents.getOrNull(documentIndex) ?: return
+    val filteredPages = if (document.pageCount > 0) {
+      pages.filter { it >= 0 && it < document.pageCount }.toSet()
+    } else {
+      pages.filter { it >= 0 }.toSet()
+    }
+    excludedPages[documentIndex] = filteredPages
+  }
+
+  private fun updateViewportBottomInset() {
+    val controlsHeight = binding.bottomControls.height
+    val targetInset = (controlsHeight + systemBottomInsetPx).coerceAtLeast(0)
+    if (bottomOverlayInsetPx == targetInset) return
+
+    bottomOverlayInsetPx = targetInset
+
+    val params = binding.viewPort.layoutParams as LayoutParams
+    if (params.bottomMargin != targetInset) {
+      params.bottomMargin = targetInset
+      binding.viewPort.layoutParams = params
+    }
+
+    if (documents.isNotEmpty() && this::viewPort.isInitialized) {
+      recalculateDocumentLayout()
+      clampMovementDifference()
+      render(true)
+    }
+  }
+
+  private fun installInsetsAndOverlayObservers() {
+    ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+      val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+      systemBottomInsetPx = navBars.bottom
+      updateViewportBottomInset()
+      insets
+    }
+
+    binding.bottomControls.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+      updateViewportBottomInset()
+    }
+
+    post {
+      requestApplyInsets()
+      updateViewportBottomInset()
+    }
   }
 
   private fun reset() {
@@ -202,6 +241,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     val shouldUpdate = !this::viewPort.isInitialized || viewPort.width != width || viewPort.height != height
     if (!shouldUpdate) return
     viewPort = Size(width, height)
+    updateViewportBottomInset()
     pendingOptions?.let {
       applyOptions(it, refresh = true)
     } ?: run {
@@ -320,7 +360,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   private fun recalculateDocumentLayout() {
     if (!this::viewPort.isInitialized || viewPort.width == 0) return
-    val availableWidth = (viewPort.width.toFloat() - 2 * MARGIN).coerceAtLeast(1f)
+    val availableWidth = (viewPort.width.toFloat() - 2 * PDFEditorConstants.MARGIN).coerceAtLeast(1f)
     documents.forEach { document ->
       val minScale = (availableWidth / document.size.width).coerceAtLeast(0.0001f)
       document.minScale = minScale
@@ -339,9 +379,9 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
     previewAdapter.submit(documentPreviews.toList(), activeDocumentIndex)
     binding.previewList.isVisible = true
-    // Center previews if they fit
-    val itemWidthDp = 88 + 12 // width + marginEnd
-    val totalWidthDp = documents.size * itemWidthDp - 12 // subtract last margin
+
+    val itemWidthDp = 88 + 12
+    val totalWidthDp = documents.size * itemWidthDp - 12
     val density = resources.displayMetrics.density
     val totalWidthPx = (totalWidthDp * density).toInt()
     val screenWidth = resources.displayMetrics.widthPixels
@@ -414,7 +454,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   private fun boundsFor(content: Float, container: Float): Pair<Float, Float> {
     if (content <= 0f || container <= 0f) return 0f to 0f
-    val margin = MARGIN * scale
+    val margin = PDFEditorConstants.MARGIN * scale
     val total = content + margin * 2
     return if (total <= container) {
       val centered = (container - total) / 2f
@@ -432,6 +472,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       clearRenderedContent()
       return
     }
+
     renderingJob?.cancel()
     renderingJob = coroutineScope.launch {
       layerBitmap = Bitmap.createBitmap(
@@ -440,7 +481,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         Bitmap.Config.ARGB_8888
       )
       val canvas = Canvas(layerBitmap)
-      val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
+      val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
       document.render(canvas, scale, offset, viewPort, refresh)
       renderDrawing(document)
     }
@@ -456,333 +497,171 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       options.lineWidth
     )
     lastPageBounds = document.pageBounds()
-    renderPageSelection(bitmap, document)
+    pageSelectionRenderer.renderPageSelection(
+      bitmap = bitmap,
+      document = document,
+      activeDocumentIndex = activeDocumentIndex,
+      excludedPagesByDocument = excludedPages,
+      viewportSize = viewPort,
+      selectionIconColor = selectionIconColor,
+    )
     binding.viewPort.setImageBitmap(bitmap)
     binding.viewPort.invalidate()
     invalidate()
   }
 
-  private fun renderPageSelection(bitmap: Bitmap, document: Document) {
-    val canvas = Canvas(bitmap)
-    val excluded = excludedPages[activeDocumentIndex] ?: emptySet()
-    val shadePaint = Paint().apply {
-      color = Color.argb(70, 80, 80, 80)
-      style = Paint.Style.FILL
-      isAntiAlias = true
-    }
-    val iconPaint = Paint().apply {
-      color = selectionIconColor
-      strokeWidth = dpToPx(2f)
-      style = Paint.Style.STROKE
-      strokeCap = Paint.Cap.ROUND
-      strokeJoin = Paint.Join.ROUND
-      isAntiAlias = true
-    }
-    val iconBgPaint = Paint().apply {
-      color = Color.argb(90, 0, 0, 0)
-      style = Paint.Style.FILL
-      isAntiAlias = true
-    }
+  private fun handleSelectionTap(point: PointF): Boolean {
+    val document = documents.getOrNull(activeDocumentIndex) ?: return false
+    val pageIndex = pageSelectionRenderer.handleSelectionTap(
+      point = point,
+      document = document,
+      viewportSize = viewPort,
+    ) ?: return false
 
-    val viewportRect = RectF(0f, 0f, viewPort.width.toFloat(), viewPort.height.toFloat())
-
-    document.pageBounds().forEach { (index, rect) ->
-      val pageVisibleRect = RectF()
-      val isPageVisible = pageVisibleRect.setIntersect(rect, viewportRect)
-      if (!isPageVisible || pageVisibleRect.isEmpty) return@forEach
-
-      val isExcluded = excluded.contains(index)
-      if (isExcluded) {
-        canvas.drawRect(pageVisibleRect, shadePaint)
-      }
-      iconPaint.color = if (isExcluded) selectionIconColor else Color.WHITE
-      drawSelectionIcon(canvas, rect, pageVisibleRect, iconPaint, iconBgPaint, isExcluded)
-    }
-  }
-
-  private fun dpToPx(value: Float): Float = value * resources.displayMetrics.density
-
-  private fun iconHitRect(pageRect: RectF, pageVisibleRect: RectF): RectF? {
-    val proposed = baseIconRect(pageRect)
-    return clampedIconRect(
-      proposedRect = proposed,
-      visibleRect = pageVisibleRect,
-      edgePaddingPx = dpToPx(PAGE_ICON_EDGE_PADDING_DP),
-      bottomHideThresholdPx = dpToPx(PAGE_ICON_BOTTOM_HIDE_THRESHOLD_DP)
-    )
-  }
-
-  private fun handleSelectionTap(event: MotionEvent): Boolean {
-    if (event.pointerCount > 1) return false
-    if (lastPageBounds.isEmpty()) return false
-
-    val viewportRect = RectF(0f, 0f, viewPort.width.toFloat(), viewPort.height.toFloat())
-
-    lastPageBounds.forEach { (index, rect) ->
-      val pageVisibleRect = RectF()
-      val isPageVisible = pageVisibleRect.setIntersect(rect, viewportRect)
-      if (!isPageVisible || pageVisibleRect.isEmpty) return@forEach
-
-      val hitRect = iconHitRect(rect, pageVisibleRect) ?: return@forEach
-      if (hitRect.contains(event.x, event.y)) {
-        toggleExcludedPage(index)
-        render(true)
-        return true
-      }
-    }
-    return false
+    toggleExcludedPage(pageIndex)
+    return true
   }
 
   private fun toggleExcludedPage(pageIndex: Int) {
     val document = documents.getOrNull(activeDocumentIndex) ?: return
-    if (pageIndex < 0 || pageIndex >= document.pageCount) return
+    val maxPageIndex = (document.pageCount - 1).coerceAtLeast(0)
+    if (pageIndex !in 0..maxPageIndex) return
     val current = excludedPages[activeDocumentIndex]?.toMutableSet() ?: mutableSetOf()
-    if (current.contains(pageIndex)) {
+    if (!current.add(pageIndex)) {
       current.remove(pageIndex)
-    } else {
-      current.add(pageIndex)
     }
     excludedPages[activeDocumentIndex] = current
+    render()
   }
 
-  private fun drawSelectionIcon(
-    canvas: Canvas,
-    pageRect: RectF,
-    pageVisibleRect: RectF,
-    paint: Paint,
-    bgPaint: Paint,
-    isExcluded: Boolean
-  ) {
-    val iconRect = clampedIconRect(
-      proposedRect = baseIconRect(pageRect),
-      visibleRect = pageVisibleRect,
-      edgePaddingPx = dpToPx(PAGE_ICON_EDGE_PADDING_DP),
-      bottomHideThresholdPx = dpToPx(PAGE_ICON_BOTTOM_HIDE_THRESHOLD_DP)
-    ) ?: return
-
-    val circleRect = RectF(iconRect).apply { inset(dpToPx(2f), dpToPx(2f)) }
-    canvas.drawOval(circleRect, bgPaint)
-    canvas.drawOval(circleRect, paint)
-
-    if (isExcluded) {
-      canvas.drawLine(
-        circleRect.left + dpToPx(4f),
-        circleRect.bottom - dpToPx(4f),
-        circleRect.right - dpToPx(4f),
-        circleRect.top + dpToPx(4f),
-        paint
-      )
-    } else {
-      canvas.drawLines(
-        floatArrayOf(
-          circleRect.left + dpToPx(4f),
-          circleRect.centerY(),
-          circleRect.centerX() - dpToPx(2f),
-          circleRect.bottom - dpToPx(6f),
-          circleRect.centerX() - dpToPx(2f),
-          circleRect.bottom - dpToPx(6f),
-          circleRect.right - dpToPx(4f),
-          circleRect.top + dpToPx(6f)
-        ),
-        paint
-      )
-    }
-  }
-
-  private fun baseIconRect(pageRect: RectF): RectF {
-    val size = dpToPx(PAGE_ICON_SIZE_DP)
-    val inset = dpToPx(PAGE_ICON_INSET_DP)
-    return RectF(
-      pageRect.right - inset - size,
-      pageRect.top + inset,
-      pageRect.right - inset,
-      pageRect.top + inset + size
-    )
-  }
-
-  private fun clampedIconRect(
-    proposedRect: RectF,
-    visibleRect: RectF,
-    edgePaddingPx: Float,
-    bottomHideThresholdPx: Float
-  ): RectF? {
-    if (visibleRect.isEmpty) return null
-
-    if (proposedRect.bottom > visibleRect.bottom - bottomHideThresholdPx) {
-      return null
-    }
-
-    val paddedRect = RectF(
-      visibleRect.left + edgePaddingPx,
-      visibleRect.top + edgePaddingPx,
-      visibleRect.right - edgePaddingPx,
-      visibleRect.bottom - edgePaddingPx
-    )
-
-    if (paddedRect.width() < proposedRect.width() || paddedRect.height() < proposedRect.height()) {
-      return null
-    }
-
-    val left = proposedRect.left.coerceIn(paddedRect.left, paddedRect.right - proposedRect.width())
-    val top = proposedRect.top.coerceIn(paddedRect.top, paddedRect.bottom - proposedRect.height())
-
-    return RectF(
-      left,
-      top,
-      left + proposedRect.width(),
-      top + proposedRect.height()
-    )
-  }
-
-
-  private var lastPoint: PointF? = null
-
+  private var lastPoint = PointF(0f, 0f)
   private var isAfterScale = false
   private var currentDrawing: BezierCurve? = null
-  private var startShapeOnPoint: PointF? = null
-  private var lastDifference: Float? = null
+  private var startShapeOnPoint = PointF(0f, 0f)
+  private var lastDifference = PointF(0f, 0f)
+
   override fun onTouchEvent(event: MotionEvent): Boolean {
-    if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-      if (handleSelectionTap(event)) {
-        // Consume the tap and re-render to reflect icon change
-        return true
-      }
-    }
+    if (documents.isEmpty()) return false
 
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
-        if (editMode) {
-          startShapeOnPoint = PointF(event.x, event.y)
-          render()
-        } else {
-          startShapeOnPoint = null
+        val p = PointF(event.x, event.y)
+        if (!editMode && handleSelectionTap(p)) {
+          parent?.requestDisallowInterceptTouchEvent(true)
+          return true
         }
+
+        lastPoint = p
+        startShapeOnPoint = p
+        currentDrawing = null
       }
 
       MotionEvent.ACTION_POINTER_DOWN -> {
-        startShapeOnPoint = null
-        if (event.pointerCount == 2) {
-          lastPoint = PointF(
-            (event.getX(0) + event.getX(1)) / 2,
-            (event.getY(0) + event.getY(1)) / 2
-          )
-          lastDifference = differentBetweenPoints(
-            event.getX(0),
-            event.getY(0),
-            event.getX(1),
-            event.getY(1)
-          )
-        }
+        isAfterScale = true
       }
 
       MotionEvent.ACTION_MOVE -> {
-        var currentPoint = PointF(
-          event.x,
-          event.y
-        )
-        if (lastPoint == null) {
-          lastPoint = currentPoint
-          return true
-        }
-        if (event.pointerCount == 2) {
-          currentPoint = PointF(
-            (event.getX(0) + event.getX(1)) / 2,
-            (event.getY(0) + event.getY(1)) / 2
-          )
-          val currentDifference = differentBetweenPoints(
-            event.getX(0),
-            event.getY(0),
-            event.getX(1),
-            event.getY(1)
-          )
-          val difScale = currentDifference / lastDifference!!
-          val difMove = currentPoint - lastPoint!!
-          if (abs(difScale - 1) < 0.001 || abs(difMove.x) < 1 || abs(difMove.y) < 1) return true
-          scale *= difScale
-          //processing scaling
-          movementDifference *= scale / previousScale
-          movementDifference += currentPoint * (1 - scale / previousScale)
+        if (event.pointerCount == 1) {
+          val currentPoint = PointF(event.x, event.y)
 
-          //processing movement
-          movementDifference += difMove
-          clampMovementDifference()
-          render()
-          lastPoint = currentPoint
-          lastDifference = currentDifference
-        } else {
           if (editMode) {
-            startShapeOnPoint?.let {
-              addShape(it)
-              startShapeOnPoint = null
+            val document = documents[activeDocumentIndex]
+            if (currentDrawing == null) {
+              val curve = BezierCurve(options.lineWidth.toFloat(), options.lineColor)
+              document.addDrawing(startShapeOnPoint, curve)
+              currentDrawing = curve
+              val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
+              document.addPointToDrawing(startShapeOnPoint, offset, scale)
             }
-            if (!isAfterScale) drawOnDocuments(currentPoint)
+            val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
+            document.addPointToDrawing(currentPoint, offset, scale)
+            startShapeOnPoint = currentPoint
+            render()
           } else {
-            val difMove = currentPoint - (lastPoint ?: currentPoint)
-            movementDifference += difMove
+            val difMove = currentPoint - lastPoint
+            movementDifference = movementDifference + difMove
             clampMovementDifference()
             render()
-            lastPoint = currentPoint
           }
-        }
-      }
 
-      MotionEvent.ACTION_POINTER_UP -> {
-        if (event.pointerCount == 2) isAfterScale = true
-        currentDrawing?.close()
-        currentDrawing = null
-        lastPoint = null
+          lastPoint = currentPoint
+        } else if (event.pointerCount == 2) {
+          val p1 = PointF(event.getX(0), event.getY(0))
+          val p2 = PointF(event.getX(1), event.getY(1))
+          val currentDifference = differentBetweenPoints(p1, p2)
+
+          val difScale = abs(currentDifference.y / lastDifference.y).let {
+            if (it.isNaN() || it.isInfinite()) 1f else it
+          }
+          val difMove = currentDifference.x - lastDifference.x
+          val oldScale = scale
+          scale *= difScale
+          val scaleRatio = if (oldScale != 0f) scale / oldScale else 1f
+
+          movementDifference = PointF(
+            movementDifference.x * scaleRatio + difMove / 2f,
+            movementDifference.y * scaleRatio
+          )
+          clampMovementDifference()
+          render()
+
+          if (isAfterScale) {
+            isAfterScale = false
+          }
+          lastDifference = currentDifference
+        }
       }
 
       MotionEvent.ACTION_UP -> {
-        currentDrawing?.close()
-        currentDrawing = null
-        isAfterScale = false
-        lastPoint = null
-        render(true)
+        if (editMode) {
+          addShape(PointF(event.x, event.y))
+        }
+      }
+
+      MotionEvent.ACTION_CANCEL -> {
+        val document = documents.getOrNull(activeDocumentIndex)
+        val curve = currentDrawing
+        if (document != null && curve != null && !curve.isClosed) {
+          document.undo()
+          currentDrawing = null
+          render()
+        }
       }
     }
+
     return true
   }
 
-  private fun differentBetweenPoints(x1: Float, y1: Float, x2: Float, y2: Float) = sqrt(
-    (x2 - x1).pow(2) + (y2 - y1).pow(2)
-  )
+  private fun differentBetweenPoints(firstPoint: PointF, secondPoint: PointF): PointF {
+    return PointF(secondPoint.x - firstPoint.x, secondPoint.y - firstPoint.y)
+  }
 
   private fun addShape(point: PointF) {
     val document = documents.getOrNull(activeDocumentIndex) ?: return
-    if (!document.contains(point)) return
-    currentDrawing = BezierCurve(
-      options.lineWidth.toFloat(),
-      options.lineColor
-    ).also {
-      document.addDrawing(point, it)
-    }
+    val curve = currentDrawing ?: return
+    val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
+    document.addPointToDrawing(point, offset, scale)
+    curve.close()
     operationList.add(activeDocumentIndex)
     redoOperationList.clear()
+    currentDrawing = null
     updateUndoRedoButtons()
-  }
-
-  private fun drawOnDocuments(point: PointF) {
-    val document = documents.getOrNull(activeDocumentIndex) ?: return
-    if (!document.contains(point)) return
-    val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
-    document.addPointToDrawing(point, offset, scale)
-    renderDrawing(document)
+    render()
   }
 
   private fun clearRenderedContent() {
-    renderingJob?.cancel()
-    renderingJob = null
-    releaseDocuments()
-    currentFilePaths = emptyList()
-    movementDifference = PointF(0f, 0f)
-    if (::layerBitmap.isInitialized && !layerBitmap.isRecycled) {
-      layerBitmap.recycle()
-    }
-    layerBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
     binding.viewPort.setImageBitmap(null)
     binding.viewPort.invalidate()
-    invalidate()
+    recycleDocumentPreviews()
+    releaseDocuments()
+    documents.clear()
+    excludedPages.clear()
+    lastPageBounds = emptyMap()
+    activeDocumentIndex = 0
+    movementDifference = PointF(0f, 0f)
+    operationList.clear()
+    redoOperationList.clear()
+    updateUndoRedoButtons()
   }
 
   override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -794,22 +673,19 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     super.onDetachedFromWindow()
     renderingJob?.cancel()
     renderingJob = null
+    binding.viewPort.setImageBitmap(null)
+    recycleDocumentPreviews()
     releaseDocuments()
-    currentFilePaths = emptyList()
-    pendingOptions = null
   }
 
   private fun releaseDocuments() {
-    documents.forEach {
+    documents.forEach { document ->
       try {
-        it.dispose()
-      } catch (_: Exception) {
+        document.dispose()
+      } catch (error: Throwable) {
+        Log.w(PDFEditorConstants.ACTION_TAG, "Error releasing document", error)
       }
     }
     documents.clear()
-    clearHistoryStacks()
-    activeDocumentIndex = 0
-    recycleDocumentPreviews()
   }
-
 }

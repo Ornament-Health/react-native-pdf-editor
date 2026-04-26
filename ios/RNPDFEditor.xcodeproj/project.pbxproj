@@ -7,8 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5E555C0D2413F4C50049A1A2 /* RNPDFEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = B3E7B5891CC2AC0600A0062D /* RNPDFEditor.m */; };
-		F4FF95D7245B92E800C19C63 /*  RNPDFEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FF95D6245B92E800C19C63 /*  RNPDFEditor.swift */; };
+		A2BD994C2F95402100574E90 /* ContainerView+Save.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD994A2F95402100574E90 /* ContainerView+Save.swift */; };
+		A2BD994D2F95402100574E90 /* ContainerView+UI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD994B2F95402100574E90 /* ContainerView+UI.swift */; };
+		A2BD995F2F95408700574E90 /* RNPDFEditorViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = A2BD995B2F95408700574E90 /* RNPDFEditorViewManager.m */; };
+		A2BD99602F95408700574E90 /* UIColor+hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD99562F95408700574E90 /* UIColor+hex.swift */; };
+		A2BD99612F95408700574E90 /* RNPDFEditorViewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD995C2F95408700574E90 /* RNPDFEditorViewManager.swift */; };
+		A2BD99622F95408700574E90 /* ContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD994E2F95408700574E90 /* ContainerView.swift */; };
+		A2BD99632F95408700574E90 /* PDFDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD99592F95408700574E90 /* PDFDocument.swift */; };
+		A2BD99642F95408700574E90 /* PDFDocument+addPages.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD99552F95408700574E90 /* PDFDocument+addPages.swift */; };
+		A2BD99652F95408700574E90 /* DrawingAnnotation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD994F2F95408700574E90 /* DrawingAnnotation.swift */; };
+		A2BD99662F95408700574E90 /* FileSwitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD99582F95408700574E90 /* FileSwitcher.swift */; };
+		A2BD99672F95408700574E90 /* UIBezierPath+.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD99532F95408700574E90 /* UIBezierPath+.swift */; };
+		A2BD99682F95408700574E90 /* NonSelectablePDFView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD99502F95408700574E90 /* NonSelectablePDFView.swift */; };
+		A2BD99692F95408700574E90 /* PDFDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BD99512F95408700574E90 /* PDFDrawer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -25,9 +36,21 @@
 
 /* Begin PBXFileReference section */
 		134814201AA4EA6300B7C361 /* libRNPDFEditor.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libRNPDFEditor.a; sourceTree = BUILT_PRODUCTS_DIR; };
-		B3E7B5891CC2AC0600A0062D /* RNPDFEditor.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = RNPDFEditor.m; sourceTree = "<group>"; };
+		A2BD994A2F95402100574E90 /* ContainerView+Save.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContainerView+Save.swift"; sourceTree = "<group>"; };
+		A2BD994B2F95402100574E90 /* ContainerView+UI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContainerView+UI.swift"; sourceTree = "<group>"; };
+		A2BD994E2F95408700574E90 /* ContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContainerView.swift; sourceTree = "<group>"; };
+		A2BD994F2F95408700574E90 /* DrawingAnnotation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingAnnotation.swift; sourceTree = "<group>"; };
+		A2BD99502F95408700574E90 /* NonSelectablePDFView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NonSelectablePDFView.swift; sourceTree = "<group>"; };
+		A2BD99512F95408700574E90 /* PDFDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFDrawer.swift; sourceTree = "<group>"; };
+		A2BD99532F95408700574E90 /* UIBezierPath+.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIBezierPath+.swift"; sourceTree = "<group>"; };
+		A2BD99552F95408700574E90 /* PDFDocument+addPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PDFDocument+addPages.swift"; sourceTree = "<group>"; };
+		A2BD99562F95408700574E90 /* UIColor+hex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIColor+hex.swift"; sourceTree = "<group>"; };
+		A2BD99582F95408700574E90 /* FileSwitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSwitcher.swift; sourceTree = "<group>"; };
+		A2BD99592F95408700574E90 /* PDFDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFDocument.swift; sourceTree = "<group>"; };
+		A2BD995A2F95408700574E90 /* RNPDFEditor.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = RNPDFEditor.xcodeproj; sourceTree = "<group>"; };
+		A2BD995B2F95408700574E90 /* RNPDFEditorViewManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RNPDFEditorViewManager.m; sourceTree = "<group>"; };
+		A2BD995C2F95408700574E90 /* RNPDFEditorViewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RNPDFEditorViewManager.swift; sourceTree = "<group>"; };
 		F4FF95D5245B92E700C19C63 /* RNPDFEditor-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "RNPDFEditor-Bridging-Header.h"; sourceTree = "<group>"; };
-		F4FF95D6245B92E800C19C63 /* RNPDFEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RNPDFEditor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -52,11 +75,52 @@
 		58B511D21A9E6C8500147676 = {
 			isa = PBXGroup;
 			children = (
-				F4FF95D6245B92E800C19C63 /* RNPDFEditor.swift */,
-				B3E7B5891CC2AC0600A0062D /* RNPDFEditor.m */,
+				A2BD994E2F95408700574E90 /* ContainerView.swift */,
+				A2BD99542F95408700574E90 /* Drawing */,
+				A2BD99572F95408700574E90 /* Extensions */,
+				A2BD99582F95408700574E90 /* FileSwitcher.swift */,
+				A2BD99592F95408700574E90 /* PDFDocument.swift */,
+				A2BD995A2F95408700574E90 /* RNPDFEditor.xcodeproj */,
+				A2BD995B2F95408700574E90 /* RNPDFEditorViewManager.m */,
+				A2BD995C2F95408700574E90 /* RNPDFEditorViewManager.swift */,
+				A2BD994A2F95402100574E90 /* ContainerView+Save.swift */,
+				A2BD994B2F95402100574E90 /* ContainerView+UI.swift */,
 				F4FF95D5245B92E700C19C63 /* RNPDFEditor-Bridging-Header.h */,
 				134814211AA4EA7D00B7C361 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		A2BD99522F95408700574E90 /* PDF */ = {
+			isa = PBXGroup;
+			children = (
+				A2BD994F2F95408700574E90 /* DrawingAnnotation.swift */,
+				A2BD99502F95408700574E90 /* NonSelectablePDFView.swift */,
+				A2BD99512F95408700574E90 /* PDFDrawer.swift */,
+			);
+			path = PDF;
+			sourceTree = "<group>";
+		};
+		A2BD99542F95408700574E90 /* Drawing */ = {
+			isa = PBXGroup;
+			children = (
+				A2BD99522F95408700574E90 /* PDF */,
+				A2BD99532F95408700574E90 /* UIBezierPath+.swift */,
+			);
+			path = Drawing;
+			sourceTree = "<group>";
+		};
+		A2BD99572F95408700574E90 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				A2BD99552F95408700574E90 /* PDFDocument+addPages.swift */,
+				A2BD99562F95408700574E90 /* UIColor+hex.swift */,
+			);
+			path = Extensions;
+			sourceTree = "<group>";
+		};
+		A2BD995D2F95408700574E90 /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -104,6 +168,12 @@
 			mainGroup = 58B511D21A9E6C8500147676;
 			productRefGroup = 58B511D21A9E6C8500147676;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = A2BD995D2F95408700574E90 /* Products */;
+					ProjectRef = A2BD995A2F95408700574E90 /* RNPDFEditor.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				58B511DA1A9E6C8500147676 /* RNPDFEditor */,
@@ -116,8 +186,19 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F4FF95D7245B92E800C19C63 /* RNPDFEditor.swift in Sources */,
-				B3E7B58A1CC2AC0600A0062D /* RNPDFEditor.m in Sources */,
+				A2BD994C2F95402100574E90 /* ContainerView+Save.swift in Sources */,
+				A2BD995F2F95408700574E90 /* RNPDFEditorViewManager.m in Sources */,
+				A2BD99602F95408700574E90 /* UIColor+hex.swift in Sources */,
+				A2BD99612F95408700574E90 /* RNPDFEditorViewManager.swift in Sources */,
+				A2BD99622F95408700574E90 /* ContainerView.swift in Sources */,
+				A2BD99632F95408700574E90 /* PDFDocument.swift in Sources */,
+				A2BD99642F95408700574E90 /* PDFDocument+addPages.swift in Sources */,
+				A2BD99652F95408700574E90 /* DrawingAnnotation.swift in Sources */,
+				A2BD99662F95408700574E90 /* FileSwitcher.swift in Sources */,
+				A2BD99672F95408700574E90 /* UIBezierPath+.swift in Sources */,
+				A2BD99682F95408700574E90 /* NonSelectablePDFView.swift in Sources */,
+				A2BD99692F95408700574E90 /* PDFDrawer.swift in Sources */,
+				A2BD994D2F95402100574E90 /* ContainerView+UI.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
