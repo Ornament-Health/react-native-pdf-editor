@@ -13,7 +13,6 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import androidx.appcompat.widget.AppCompatImageButton
 import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
@@ -209,14 +208,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
     bottomOverlayInsetPx = targetInset
 
-    val params = binding.viewPort.layoutParams as LayoutParams
-    if (params.bottomMargin != targetInset) {
-      params.bottomMargin = targetInset
-      binding.viewPort.layoutParams = params
-    }
-
     if (documents.isNotEmpty() && this::viewPort.isInitialized) {
-      recalculateDocumentLayout()
       clampMovementDifference()
       render(true)
     }
@@ -440,7 +432,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       return
     }
     val (minX, maxX) = boundsFor(contentWidth(), viewPort.width.toFloat())
-    val (minY, maxY) = boundsFor(contentHeight(), viewPort.height.toFloat())
+    val (minY, maxY) = verticalBoundsFor(contentHeight(), viewPort.height.toFloat())
     movementDifference.x = movementDifference.x.coerceIn(minX, maxX)
     movementDifference.y = movementDifference.y.coerceIn(minY, maxY)
   }
@@ -451,7 +443,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       return
     }
     val (minX, maxX) = boundsFor(contentWidth(), viewPort.width.toFloat())
-    val (minY, maxY) = boundsFor(contentHeight(), viewPort.height.toFloat())
+    val (minY, maxY) = verticalBoundsFor(contentHeight(), viewPort.height.toFloat())
     movementDifference.x = if (minX == maxX) minX else maxX
     movementDifference.y = if (minY == maxY) minY else maxY
   }
@@ -477,6 +469,12 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       val min = container - total
       min to 0f
     }
+  }
+
+  private fun verticalBoundsFor(content: Float, container: Float): Pair<Float, Float> {
+    val (minY, maxY) = boundsFor(content, container)
+    val spacer = bottomOverlayInsetPx.toFloat()
+    return (minY - spacer) to maxY
   }
 
   private fun render(refresh: Boolean = false) {

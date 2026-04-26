@@ -110,9 +110,14 @@ extension ContainerView {
   func updatePDFBottomInset() {
     guard let scrollView = scrollViewIfPresent() else { return }
 
-    let safeBottom = safeAreaInsets.bottom
-    let overlayVisible = !(bottomOverlayContainer?.isHidden ?? true)
-    let bottomInset = overlayVisible ? (bottomControlsHeight + safeBottom) : safeBottom
+    let bottomInset = bottomScrollSpacerHeight()
+
+    if #available(iOS 11.0, *) {
+      scrollView.contentInsetAdjustmentBehavior = .never
+      if #available(iOS 13.0, *) {
+        scrollView.automaticallyAdjustsScrollIndicatorInsets = false
+      }
+    }
 
     if abs(scrollView.contentInset.bottom - bottomInset) > 0.5 {
       var inset = scrollView.contentInset
@@ -123,6 +128,12 @@ extension ContainerView {
       indicatorInset.bottom = bottomInset
       scrollView.scrollIndicatorInsets = indicatorInset
     }
+  }
+
+  func bottomScrollSpacerHeight() -> CGFloat {
+    let safeBottom = safeAreaInsets.bottom
+    let overlayVisible = !(bottomOverlayContainer?.isHidden ?? true)
+    return overlayVisible ? (bottomControlsHeight + safeBottom) : safeBottom
   }
 
   func makeEditControlsContainer() -> UIView {
@@ -272,7 +283,8 @@ extension ContainerView {
   }
 
   func configureScrollView() {
-    scrollViewIfPresent()?.isScrollEnabled = !isEditMode
+    guard let scrollView = scrollViewIfPresent() else { return }
+    scrollView.isScrollEnabled = !isEditMode
     updatePDFBottomInset()
   }
 
