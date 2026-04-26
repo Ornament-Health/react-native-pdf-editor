@@ -14,12 +14,29 @@ internal class PDFPageSelectionOverlayRenderer(
   private val pageIconSizeDp: Float,
   private val pageIconInsetDp: Float,
   private val pageIconEdgePaddingDp: Float,
-  private val pageIconBottomHideThresholdDp: Float,
 ) {
 
   fun renderPageSelection(
     bitmap: Bitmap,
     document: Document,
+    activeDocumentIndex: Int,
+    excludedPagesByDocument: Map<Int, Set<Int>>,
+    viewportSize: android.util.Size,
+    selectionIconColor: Int,
+  ) {
+    renderPageSelection(
+      bitmap = bitmap,
+      pageBounds = document.pageBounds(),
+      activeDocumentIndex = activeDocumentIndex,
+      excludedPagesByDocument = excludedPagesByDocument,
+      viewportSize = viewportSize,
+      selectionIconColor = selectionIconColor,
+    )
+  }
+
+  fun renderPageSelection(
+    bitmap: Bitmap,
+    pageBounds: Map<Int, RectF>,
     activeDocumentIndex: Int,
     excludedPagesByDocument: Map<Int, Set<Int>>,
     viewportSize: android.util.Size,
@@ -49,7 +66,7 @@ internal class PDFPageSelectionOverlayRenderer(
 
     val viewportRect = RectF(0f, 0f, viewportSize.width.toFloat(), viewportSize.height.toFloat())
 
-    document.pageBounds().forEach { (index, rect) ->
+    pageBounds.forEach { (index, rect) ->
       val pageVisibleRect = RectF()
       val isPageVisible = pageVisibleRect.setIntersect(rect, viewportRect)
       if (!isPageVisible || pageVisibleRect.isEmpty) return@forEach
@@ -67,7 +84,6 @@ internal class PDFPageSelectionOverlayRenderer(
         iconPaint = iconPaint,
         iconBgPaint = iconBgPaint,
         isExcluded = isExcluded,
-        viewportSize = viewportSize,
       )
     }
   }
@@ -87,7 +103,6 @@ internal class PDFPageSelectionOverlayRenderer(
       val hitRect = iconHitRect(
         pageRect = rect,
         visibleRect = pageVisibleRect,
-        viewportSize = viewportSize,
       )
       if (hitRect.contains(point.x, point.y)) {
         return index
@@ -100,10 +115,9 @@ internal class PDFPageSelectionOverlayRenderer(
   private fun iconHitRect(
     pageRect: RectF,
     visibleRect: RectF,
-    viewportSize: android.util.Size,
   ): RectF {
     val proposed = baseIconRect(pageRect)
-    val clamped = clampedIconRect(proposed, visibleRect, viewportSize)
+    val clamped = clampedIconRect(proposed, visibleRect)
     val pad = dpToPx(12f)
 
     return RectF(
@@ -121,9 +135,8 @@ internal class PDFPageSelectionOverlayRenderer(
     iconPaint: Paint,
     iconBgPaint: Paint,
     isExcluded: Boolean,
-    viewportSize: android.util.Size,
   ) {
-    val iconRect = clampedIconRect(baseIconRect(pageRect), visibleRect, viewportSize)
+    val iconRect = clampedIconRect(baseIconRect(pageRect), visibleRect)
     if (iconRect.isEmpty) return
 
     val cx = iconRect.centerX()
@@ -144,7 +157,6 @@ internal class PDFPageSelectionOverlayRenderer(
       canvas.drawLine(left, top, right, bottom, iconPaint)
       canvas.drawLine(right, top, left, bottom, iconPaint)
     } else {
-      val midX = (left + right) / 2f
       val tickStartX = left + (right - left) * 0.12f
       val tickStartY = top + (bottom - top) * 0.58f
       val tickMidX = left + (right - left) * 0.42f
@@ -154,7 +166,6 @@ internal class PDFPageSelectionOverlayRenderer(
 
       canvas.drawLine(tickStartX, tickStartY, tickMidX, tickMidY, iconPaint)
       canvas.drawLine(tickMidX, tickMidY, tickEndX, tickEndY, iconPaint)
-      canvas.drawLine(midX, top + (bottom - top) * 0.1f, midX, top + (bottom - top) * 0.3f, iconPaint)
     }
   }
 
@@ -172,25 +183,27 @@ internal class PDFPageSelectionOverlayRenderer(
   private fun clampedIconRect(
     iconRect: RectF,
     visibleRect: RectF,
-    viewportSize: android.util.Size,
   ): RectF {
     if (visibleRect.isEmpty) return RectF()
-
-    val threshold = dpToPx(pageIconBottomHideThresholdDp)
-    if (visibleRect.bottom >= viewportSize.height - threshold) {
-      return RectF()
-    }
 
     val iconWidth = iconRect.width()
     val iconHeight = iconRect.height()
     if (iconWidth <= 0f || iconHeight <= 0f) return RectF()
 
-    val edgePadding = dpToPx(pageIconEdgePaddingDp)
+    val horizontalPadding = dpToPx(pageIconEdgePaddingDp)
+    val verticalPadding = dpToPx(pageIconInsetDp)
+    if (visibleRect.width() <= iconWidth + horizontalPadding * 2f) {
+      return RectF()
+    }
+    if (visibleRect.height() <= iconHeight + verticalPadding * 2f) {
+      return RectF()
+    }
+
     val paddedRect = RectF(
-      visibleRect.left + edgePadding,
-      visibleRect.top + edgePadding,
-      visibleRect.right - edgePadding,
-      visibleRect.bottom - edgePadding,
+      visibleRect.left + horizontalPadding,
+      visibleRect.top + verticalPadding,
+      visibleRect.right - horizontalPadding,
+      visibleRect.bottom - verticalPadding,
     )
 
     if (paddedRect.width() < iconWidth || paddedRect.height() < iconHeight) {

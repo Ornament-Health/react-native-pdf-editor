@@ -9,5 +9,4 @@ object PDFEditorConstants {
   const val PAGE_ICON_SIZE_DP = 28f
   const val PAGE_ICON_INSET_DP = 8f
   const val PAGE_ICON_EDGE_PADDING_DP = 8f
-  const val PAGE_ICON_BOTTOM_HIDE_THRESHOLD_DP = 8f
 }

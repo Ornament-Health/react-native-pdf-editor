@@ -57,6 +57,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   private val excludedPages = mutableMapOf<Int, Set<Int>>()
   private var lastPageBounds: Map<Int, android.graphics.RectF> = emptyMap()
+  private var zoomReferencePageBounds: Map<Int, android.graphics.RectF> = emptyMap()
 
   private lateinit var options: PDFEditorOptions
   private var pendingOptions: PDFEditorOptions? = null
@@ -102,7 +103,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     pageIconSizeDp = PDFEditorConstants.PAGE_ICON_SIZE_DP,
     pageIconInsetDp = PDFEditorConstants.PAGE_ICON_INSET_DP,
     pageIconEdgePaddingDp = PDFEditorConstants.PAGE_ICON_EDGE_PADDING_DP,
-    pageIconBottomHideThresholdDp = PDFEditorConstants.PAGE_ICON_BOTTOM_HIDE_THRESHOLD_DP,
   )
 
   init {
@@ -525,10 +525,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       val offset = documentOffset(scale)
       document.render(canvas, scale, offset, viewPort, refresh, isPinching, zoomingOut)
       if (isPinching) {
-        binding.viewPort.setImageBitmap(baseBitmap)
-        binding.viewPort.invalidate()
-        invalidate()
-        updateZoomReference(baseBitmap)
+        renderDrawing(document, baseBitmap)
         lastInteractiveHighQualityRenderNs = nowNs
         lastInteractiveHighQualityScale = scale
       } else {
@@ -553,19 +550,31 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       options.lineColor,
       options.lineWidth
     )
-    lastPageBounds = document.pageBounds()
+    val pageBounds = copyPageBounds(document.pageBounds())
+    lastPageBounds = pageBounds
+    updateZoomReference(bitmap, pageBounds)
+    renderPageSelectionOverlay(bitmap, pageBounds)
+    presentBitmap(bitmap)
+  }
+
+  private fun renderPageSelectionOverlay(
+    bitmap: Bitmap,
+    pageBounds: Map<Int, android.graphics.RectF>,
+  ) {
     pageSelectionRenderer.renderPageSelection(
       bitmap = bitmap,
-      document = document,
+      pageBounds = pageBounds,
       activeDocumentIndex = activeDocumentIndex,
       excludedPagesByDocument = excludedPages,
       viewportSize = viewPort,
       selectionIconColor = selectionIconColor,
     )
+  }
+
+  private fun presentBitmap(bitmap: Bitmap) {
     binding.viewPort.setImageBitmap(bitmap)
     binding.viewPort.invalidate()
     invalidate()
-    updateZoomReference(bitmap)
   }
 
   private fun handleSelectionTap(point: PointF): Boolean {
@@ -734,6 +743,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     documents.clear()
     excludedPages.clear()
     lastPageBounds = emptyMap()
+    zoomReferencePageBounds = emptyMap()
     activeDocumentIndex = 0
     movementDifference = PointF(0f, 0f)
     lastInteractiveHighQualityRenderNs = 0L
@@ -787,6 +797,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       if (!bitmap.isRecycled) bitmap.recycle()
     }
     zoomReferenceBitmap = null
+    zoomReferencePageBounds = emptyMap()
   }
 
   private fun obtainLayerBitmap(current: Bitmap?, width: Int, height: Int, clearColor: Int): Bitmap {
@@ -825,7 +836,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     previewFrames = 0
     previewFallbackFrames = 0
     previewCoverageAccum = 0f
-    updateZoomReference(composedLayerBitmap ?: baseLayerBitmap)
     lastInteractiveHighQualityRenderNs = System.nanoTime()
     lastInteractiveHighQualityScale = scale
   }
@@ -909,9 +919,14 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     previewCanvas.drawBitmap(referenceBitmap, 0f, 0f, null)
     previewCanvas.restore()
 
-    binding.viewPort.setImageBitmap(previewBitmap)
-    binding.viewPort.invalidate()
-    invalidate()
+    val previewPageBounds = transformPageBounds(
+      pageBounds = zoomReferencePageBounds,
+      scaleFactor = scaleFactor,
+      targetOffset = targetOffset,
+      referenceOffset = referenceOffset,
+    )
+    renderPageSelectionOverlay(previewBitmap, previewPageBounds)
+    presentBitmap(previewBitmap)
     return true
   }
 
@@ -938,7 +953,10 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     return if (viewportArea <= 0f) 1f else (intersectionArea / viewportArea).coerceIn(0f, 1f)
   }
 
-  private fun updateZoomReference(source: Bitmap?) {
+  private fun updateZoomReference(
+    source: Bitmap?,
+    pageBounds: Map<Int, android.graphics.RectF> = lastPageBounds,
+  ) {
     val sourceBitmap = source
     if (sourceBitmap == null || sourceBitmap.isRecycled) return
     val referenceBitmap = obtainLayerBitmap(
@@ -949,7 +967,28 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     )
     zoomReferenceBitmap = referenceBitmap
     Canvas(referenceBitmap).drawBitmap(sourceBitmap, 0f, 0f, null)
+    zoomReferencePageBounds = copyPageBounds(pageBounds)
     zoomReferenceScale = scale
     zoomReferenceOffset = documentOffset(scale)
   }
+
+  private fun transformPageBounds(
+    pageBounds: Map<Int, android.graphics.RectF>,
+    scaleFactor: Float,
+    targetOffset: PointF,
+    referenceOffset: PointF,
+  ): Map<Int, android.graphics.RectF> =
+    pageBounds.mapValues { (_, rect) ->
+      android.graphics.RectF(
+        targetOffset.x + (rect.left - referenceOffset.x) * scaleFactor,
+        targetOffset.y + (rect.top - referenceOffset.y) * scaleFactor,
+        targetOffset.x + (rect.right - referenceOffset.x) * scaleFactor,
+        targetOffset.y + (rect.bottom - referenceOffset.y) * scaleFactor,
+      )
+    }
+
+  private fun copyPageBounds(
+    pageBounds: Map<Int, android.graphics.RectF>,
+  ): Map<Int, android.graphics.RectF> =
+    pageBounds.mapValues { (_, rect) -> android.graphics.RectF(rect) }
 }
