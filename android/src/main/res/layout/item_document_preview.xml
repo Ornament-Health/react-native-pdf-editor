@@ -2,24 +2,56 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="88dp"
     android:layout_height="104dp"
-    android:layout_marginEnd="12dp">
+    android:layout_marginEnd="12dp"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
-    <ImageView
-        android:id="@+id/thumbnail"
+    <FrameLayout
+        android:id="@+id/preview_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_margin="2dp"
-        android:scaleType="centerCrop"
-        android:background="@drawable/bg_preview_placeholder"
-        android:contentDescription="@string/pdfeditor_preview_content_description"
-        android:clipToOutline="true"
-        android:outlineProvider="background" />
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
-    <View
-        android:id="@+id/selection_overlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/bg_preview_selected"
-        android:visibility="gone" />
+        <View
+            android:id="@+id/back_sheet_far"
+            android:layout_width="76dp"
+            android:layout_height="96dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_preview_sheet"
+            android:translationX="4dp"
+            android:translationY="4dp"
+            android:visibility="gone" />
+
+        <View
+            android:id="@+id/back_sheet_near"
+            android:layout_width="76dp"
+            android:layout_height="96dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_preview_sheet"
+            android:translationX="0dp"
+            android:translationY="0dp"
+            android:visibility="gone" />
+
+        <FrameLayout
+            android:id="@+id/front_sheet"
+            android:layout_width="76dp"
+            android:layout_height="96dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_preview_sheet">
+
+            <ImageView
+                android:id="@+id/thumbnail"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_margin="3dp"
+                android:adjustViewBounds="true"
+                android:background="@android:color/white"
+                android:contentDescription="@string/pdfeditor_preview_content_description"
+                android:scaleType="fitCenter" />
+
+        </FrameLayout>
+
+    </FrameLayout>
 
 </FrameLayout>

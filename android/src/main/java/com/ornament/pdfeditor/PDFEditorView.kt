@@ -381,7 +381,13 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       if (thumbnail == null) {
         Log.w("RNPDFEditor", "Thumbnail is null for index=$index type=${document.javaClass.simpleName}")
       }
-      documentPreviews.add(DocumentPreviewItem(index, thumbnail))
+      documentPreviews.add(
+        DocumentPreviewItem(
+          index = index,
+          thumbnail = thumbnail,
+          isMultiPage = document.pageCount > 1,
+        )
+      )
     }
     previewAdapter.submit(documentPreviews.toList(), activeDocumentIndex)
     binding.previewList.isVisible = true

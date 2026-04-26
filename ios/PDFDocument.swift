@@ -28,6 +28,8 @@ class RNPDFDocument {
     default:
       return nil
     }
+
+    updatePageCountIfNeeded()
   }
 
   func convert(completion: @escaping ((PDFDocument?) -> Void)) {
@@ -64,6 +66,8 @@ class RNPDFDocument {
       return nil
     }
 
+    updatePageCountIfNeeded()
+
     switch type {
     case .image:
       return loadImage(fileURL: documentURL)?.resized(to: CGSize(width: 100, height: 100))
@@ -87,6 +91,18 @@ class RNPDFDocument {
 // MARK: Helpers Methods
 
 extension RNPDFDocument {
+
+  private func updatePageCountIfNeeded() {
+    guard pageCount == 0 else { return }
+    guard let documentURL = documentURL else { return }
+
+    switch type {
+    case .image:
+      pageCount = 1
+    case .pdf:
+      pageCount = PDFDocument(url: documentURL)?.pageCount ?? 0
+    }
+  }
 
   private func loadImage(fileURL: URL) -> UIImage? {
     do {

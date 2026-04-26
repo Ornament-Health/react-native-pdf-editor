@@ -9,7 +9,8 @@ import com.ornament.pdfeditor.databinding.ItemDocumentPreviewBinding
 
 data class DocumentPreviewItem(
     val index: Int,
-    val thumbnail: Bitmap?
+    val thumbnail: Bitmap?,
+    val isMultiPage: Boolean
 )
 
 class DocumentPreviewAdapter(
@@ -70,12 +71,29 @@ class DocumentPreviewAdapter(
 
         fun bind(item: DocumentPreviewItem, isSelected: Boolean) {
             binding.thumbnail.setImageBitmap(item.thumbnail)
-            binding.selectionOverlay.visibility = if (isSelected) View.VISIBLE else View.GONE
+            val stackVisibility = if (item.isMultiPage) View.VISIBLE else View.GONE
+            binding.backSheetFar.visibility = stackVisibility
+            binding.backSheetNear.visibility = stackVisibility
+            val frontTranslation = if (item.isMultiPage) {
+                binding.root.resources.displayMetrics.density * -4f
+            } else {
+                0f
+            }
+            binding.frontSheet.translationX = frontTranslation
+            binding.frontSheet.translationY = frontTranslation
+            val scale = if (isSelected) 1f else 0.88f
+            binding.previewContent.scaleX = scale
+            binding.previewContent.scaleY = scale
         }
 
         fun clear() {
             binding.thumbnail.setImageBitmap(null)
-            binding.selectionOverlay.visibility = View.GONE
+            binding.backSheetFar.visibility = View.GONE
+            binding.backSheetNear.visibility = View.GONE
+            binding.frontSheet.translationX = 0f
+            binding.frontSheet.translationY = 0f
+            binding.previewContent.scaleX = 1f
+            binding.previewContent.scaleY = 1f
         }
     }
 }
