@@ -130,7 +130,9 @@ class ImageDocument(
         scale: Float,
         offset: PointF,
         viewPortSize: Size,
-        refresh: Boolean
+        refresh: Boolean,
+        interactive: Boolean,
+        zoomingOut: Boolean
     ) {
         val imageRect = findPdfPageRect(scale * minScale, offset)
         canvas.drawBitmap(imageBitmap, null, imageRect, Paint())
@@ -178,28 +180,19 @@ class ImageDocument(
             strokeCap = Paint.Cap.ROUND
             style = Paint.Style.STROKE
         }
-        val drawingBitmap = Bitmap.createBitmap(
-            drawClip.width().toInt(),
-            drawClip.height().toInt(),
-            Bitmap.Config.ARGB_8888
-        )
-        Canvas(drawingBitmap).let { canvas ->
-            imageDrawing.forEach {
-                it.drawOnCanvas(
-                    canvas,
-                    pagePaint,
-                    RectF(
-                        imageRect.left - drawClip.left,
-                        imageRect.top - drawClip.top,
-                        drawClip.width(),
-                        drawClip.height()
-                    ),
-                    scale,
-                    if (it.isClosed) 255 else 128
-                )
-            }
+        val bitmapCanvas = Canvas(bitmap)
+        val saveCount = bitmapCanvas.save()
+        bitmapCanvas.clipRect(drawClip)
+        imageDrawing.forEach {
+            it.drawOnCanvas(
+                bitmapCanvas,
+                pagePaint,
+                imageRect,
+                scale,
+                if (it.isClosed) 255 else 128
+            )
         }
-        Canvas(bitmap).drawBitmap(drawingBitmap, null, drawClip, Paint())
+        bitmapCanvas.restoreToCount(saveCount)
     }
 
     override fun reset() {

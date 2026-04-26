@@ -28,7 +28,15 @@ abstract class Document {
 
     abstract fun save(outputDirectory: String, options: PDFEditorOptions, excludedPages: Set<Int>): String?
 
-    abstract fun render(canvas: Canvas, scale: Float, offset: PointF, viewPortSize: Size, refresh: Boolean)
+    abstract fun render(
+        canvas: Canvas,
+        scale: Float,
+        offset: PointF,
+        viewPortSize: Size,
+        refresh: Boolean,
+        interactive: Boolean,
+        zoomingOut: Boolean
+    )
 
     abstract fun contains(point: PointF): Boolean
 

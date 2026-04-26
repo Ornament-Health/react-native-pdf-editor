@@ -1,13 +1,11 @@
 package com.ornament.pdfeditor.drawing
 
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
-import android.util.Size
 import android.util.SizeF
 import androidx.annotation.ColorInt
 import com.itextpdf.kernel.colors.DeviceRgb
@@ -51,14 +49,7 @@ class BezierCurve(private val baseWidth: Float, @ColorInt private val color: Int
             )
         }
 
-        //drawing path
-        val pageSize = Size(
-            drawClip.width().toInt(),
-            drawClip.height().toInt()
-        )
-        val bitmap = Bitmap.createBitmap(pageSize.width, pageSize.height, Bitmap.Config.ARGB_8888)
-        Canvas(bitmap).drawPath(path, paint)
-        canvas.drawBitmap(bitmap, 0f, 0f, paint)
+        canvas.drawPath(path, paint)
     }
 
     fun drawOnPdfCanvas(pdfCanvas: PdfCanvas, pageSize: SizeF, scale: Float) {

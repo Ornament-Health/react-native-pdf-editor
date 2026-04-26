@@ -70,18 +70,32 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   private var movementDifference = PointF(0f, 0f)
   private var currentFilePaths = listOf<String>()
 
-  private lateinit var layerBitmap: Bitmap
-
   private val documents = mutableListOf<Document>()
 
   private val coroutineScope = CoroutineScope(Dispatchers.Main)
   private var renderingJob: Job? = null
+  private var renderQueued = false
+  private var pendingRefresh = false
   private var scale: Float = 1f
     set(value) {
       previousScale = field
       field = value.coerceAtLeast(1f).coerceAtMost(PDFEditorConstants.MAX_SCALE)
     }
   private var previousScale = scale
+  private var baseLayerBitmap: Bitmap? = null
+  private var composedLayerBitmap: Bitmap? = null
+  private var zoomReferenceBitmap: Bitmap? = null
+  private var zoomReferenceScale: Float = 1f
+  private var zoomReferenceOffset: PointF = PointF(0f, 0f)
+  private var lastInteractiveHighQualityRenderNs: Long = 0L
+  private var lastInteractiveHighQualityScale: Float = 1f
+  private val interactiveHighQualityIntervalNs = 80_000_000L
+  private val interactiveHighQualityZoomOutIntervalNs = 28_000_000L
+  private val zoomOutFullRenderThreshold = 0.08f
+  private val previewCoverageThreshold = 0.985f
+  private var previewFrames = 0
+  private var previewFallbackFrames = 0
+  private var previewCoverageAccum = 0f
 
   private val pageSelectionRenderer = PDFPageSelectionOverlayRenderer(
     resources = resources,
@@ -467,6 +481,24 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   private fun render(refresh: Boolean = false) {
     if (!::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
+
+    pendingRefresh = pendingRefresh || refresh
+    if (renderQueued) return
+
+    renderQueued = true
+    postOnAnimation {
+      renderQueued = false
+      val shouldRefresh = pendingRefresh
+      pendingRefresh = false
+      performRender(shouldRefresh)
+      if (pendingRefresh && !renderQueued) {
+        render()
+      }
+    }
+  }
+
+  private fun performRender(refresh: Boolean = false) {
+    if (!::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
     val document = documents.getOrNull(activeDocumentIndex)
     if (document == null) {
       clearRenderedContent()
@@ -475,20 +507,45 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
     renderingJob?.cancel()
     renderingJob = coroutineScope.launch {
-      layerBitmap = Bitmap.createBitmap(
-        viewPort.width,
-        viewPort.height,
-        Bitmap.Config.ARGB_8888
-      )
-      val canvas = Canvas(layerBitmap)
-      val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
-      document.render(canvas, scale, offset, viewPort, refresh)
-      renderDrawing(document)
+      val renderStartNs = System.nanoTime()
+      val width = viewPort.width
+      val height = viewPort.height
+      val nowNs = System.nanoTime()
+      val zoomingOut = isPinching && scale < previousScale
+      if (isPinching && !refresh && shouldUseInteractivePreview(nowNs, zoomingOut)) {
+        if (renderInteractivePreview(width, height, zoomingOut)) {
+          pinchRenderAccumNs += (System.nanoTime() - renderStartNs)
+          pinchRenderFrames += 1
+          return@launch
+        }
+      }
+      val baseBitmap = obtainLayerBitmap(baseLayerBitmap, width, height, Color.TRANSPARENT)
+      baseLayerBitmap = baseBitmap
+      val canvas = Canvas(baseBitmap)
+      val offset = documentOffset(scale)
+      document.render(canvas, scale, offset, viewPort, refresh, isPinching, zoomingOut)
+      if (isPinching) {
+        binding.viewPort.setImageBitmap(baseBitmap)
+        binding.viewPort.invalidate()
+        invalidate()
+        updateZoomReference(baseBitmap)
+        lastInteractiveHighQualityRenderNs = nowNs
+        lastInteractiveHighQualityScale = scale
+      } else {
+        val composedBitmap = obtainLayerBitmap(composedLayerBitmap, width, height, Color.TRANSPARENT)
+        composedLayerBitmap = composedBitmap
+        Canvas(composedBitmap).drawBitmap(baseBitmap, 0f, 0f, null)
+        renderDrawing(document, composedBitmap)
+      }
+
+      if (isPinching) {
+        pinchRenderAccumNs += (System.nanoTime() - renderStartNs)
+        pinchRenderFrames += 1
+      }
     }
   }
 
-  private fun renderDrawing(document: Document) {
-    val bitmap = layerBitmap.copy(Bitmap.Config.ARGB_8888, true)
+  private fun renderDrawing(document: Document, bitmap: Bitmap) {
     document.renderDrawing(
       bitmap,
       scale,
@@ -508,6 +565,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     binding.viewPort.setImageBitmap(bitmap)
     binding.viewPort.invalidate()
     invalidate()
+    updateZoomReference(bitmap)
   }
 
   private fun handleSelectionTap(point: PointF): Boolean {
@@ -535,10 +593,17 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   }
 
   private var lastPoint = PointF(0f, 0f)
-  private var isAfterScale = false
+  private var isPinching = false
+  private var lastPinchDistance = 0f
+  private val minPinchDistancePx = 8f
+  private val minScaleFactorPerFrame = 0.9f
+  private val maxScaleFactorPerFrame = 1.1f
+  private var pinchGestureStartNs = 0L
+  private var pinchRenderAccumNs = 0L
+  private var pinchRenderFrames = 0
+  private var pinchEvents = 0
   private var currentDrawing: BezierCurve? = null
   private var startShapeOnPoint = PointF(0f, 0f)
-  private var lastDifference = PointF(0f, 0f)
 
   override fun onTouchEvent(event: MotionEvent): Boolean {
     if (documents.isEmpty()) return false
@@ -557,7 +622,22 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       }
 
       MotionEvent.ACTION_POINTER_DOWN -> {
-        isAfterScale = true
+        if (editMode && currentDrawing != null) {
+          addShape(startShapeOnPoint)
+        }
+        if (event.pointerCount >= 2) {
+          beginPinch(event)
+        }
+      }
+
+      MotionEvent.ACTION_POINTER_UP -> {
+        if (isPinching && event.pointerCount <= 2) {
+          endPinch()
+        }
+        val remainingIndex = if (event.actionIndex == 0) 1 else 0
+        if (remainingIndex in 0 until event.pointerCount) {
+          lastPoint = PointF(event.getX(remainingIndex), event.getY(remainingIndex))
+        }
       }
 
       MotionEvent.ACTION_MOVE -> {
@@ -586,39 +666,39 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
           lastPoint = currentPoint
         } else if (event.pointerCount == 2) {
-          val p1 = PointF(event.getX(0), event.getY(0))
-          val p2 = PointF(event.getX(1), event.getY(1))
-          val currentDifference = differentBetweenPoints(p1, p2)
+          if (!isPinching) {
+            beginPinch(event)
+          }
 
-          val difScale = abs(currentDifference.y / lastDifference.y).let {
+          val distance = pinchDistance(event)
+          if (distance <= minPinchDistancePx) return true
+
+          val rawScaleFactor = (distance / lastPinchDistance).let {
             if (it.isNaN() || it.isInfinite()) 1f else it
           }
-          val difMove = currentDifference.x - lastDifference.x
-          val oldScale = scale
-          scale *= difScale
-          val scaleRatio = if (oldScale != 0f) scale / oldScale else 1f
-
-          movementDifference = PointF(
-            movementDifference.x * scaleRatio + difMove / 2f,
-            movementDifference.y * scaleRatio
-          )
-          clampMovementDifference()
+          val frameScaleFactor = rawScaleFactor.coerceIn(minScaleFactorPerFrame, maxScaleFactorPerFrame)
+          val newScale = (scale * frameScaleFactor).coerceAtLeast(1f).coerceAtMost(PDFEditorConstants.MAX_SCALE)
+          val focus = pinchFocus(event)
+          applyScaleAroundFocus(newScale, focus)
+          lastPinchDistance = distance
+          pinchEvents += 1
           render()
-
-          if (isAfterScale) {
-            isAfterScale = false
-          }
-          lastDifference = currentDifference
         }
       }
 
       MotionEvent.ACTION_UP -> {
+        if (isPinching) {
+          endPinch()
+        }
         if (editMode) {
           addShape(PointF(event.x, event.y))
         }
       }
 
       MotionEvent.ACTION_CANCEL -> {
+        if (isPinching) {
+          endPinch()
+        }
         val document = documents.getOrNull(activeDocumentIndex)
         val curve = currentDrawing
         if (document != null && curve != null && !curve.isClosed) {
@@ -630,10 +710,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
 
     return true
-  }
-
-  private fun differentBetweenPoints(firstPoint: PointF, secondPoint: PointF): PointF {
-    return PointF(secondPoint.x - firstPoint.x, secondPoint.y - firstPoint.y)
   }
 
   private fun addShape(point: PointF) {
@@ -652,6 +728,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   private fun clearRenderedContent() {
     binding.viewPort.setImageBitmap(null)
     binding.viewPort.invalidate()
+    recycleLayerBitmaps()
     recycleDocumentPreviews()
     releaseDocuments()
     documents.clear()
@@ -659,6 +736,11 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     lastPageBounds = emptyMap()
     activeDocumentIndex = 0
     movementDifference = PointF(0f, 0f)
+    lastInteractiveHighQualityRenderNs = 0L
+    lastInteractiveHighQualityScale = scale
+    previewFrames = 0
+    previewFallbackFrames = 0
+    previewCoverageAccum = 0f
     operationList.clear()
     redoOperationList.clear()
     updateUndoRedoButtons()
@@ -674,6 +756,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     renderingJob?.cancel()
     renderingJob = null
     binding.viewPort.setImageBitmap(null)
+    recycleLayerBitmaps()
     recycleDocumentPreviews()
     releaseDocuments()
   }
@@ -687,5 +770,186 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       }
     }
     documents.clear()
+  }
+
+  private fun recycleLayerBitmaps() {
+    baseLayerBitmap?.let { bitmap ->
+      if (!bitmap.isRecycled) bitmap.recycle()
+    }
+    baseLayerBitmap = null
+
+    composedLayerBitmap?.let { bitmap ->
+      if (!bitmap.isRecycled) bitmap.recycle()
+    }
+    composedLayerBitmap = null
+
+    zoomReferenceBitmap?.let { bitmap ->
+      if (!bitmap.isRecycled) bitmap.recycle()
+    }
+    zoomReferenceBitmap = null
+  }
+
+  private fun obtainLayerBitmap(current: Bitmap?, width: Int, height: Int, clearColor: Int): Bitmap {
+    if (current != null && !current.isRecycled && current.width == width && current.height == height) {
+      current.eraseColor(clearColor)
+      return current
+    }
+    if (current != null && !current.isRecycled) {
+      current.recycle()
+    }
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+      it.eraseColor(clearColor)
+    }
+  }
+
+  private fun pinchDistance(event: MotionEvent): Float {
+    if (event.pointerCount < 2) return 0f
+    val dx = event.getX(0) - event.getX(1)
+    val dy = event.getY(0) - event.getY(1)
+    return sqrt(dx * dx + dy * dy)
+  }
+
+  private fun pinchFocus(event: MotionEvent): PointF {
+    if (event.pointerCount < 2) return PointF(event.x, event.y)
+    return PointF((event.getX(0) + event.getX(1)) / 2f, (event.getY(0) + event.getY(1)) / 2f)
+  }
+
+  private fun beginPinch(event: MotionEvent) {
+    val distance = pinchDistance(event).coerceAtLeast(minPinchDistancePx)
+    lastPinchDistance = distance
+    isPinching = true
+    pinchGestureStartNs = System.nanoTime()
+    pinchRenderAccumNs = 0L
+    pinchRenderFrames = 0
+    pinchEvents = 0
+    previewFrames = 0
+    previewFallbackFrames = 0
+    previewCoverageAccum = 0f
+    updateZoomReference(composedLayerBitmap ?: baseLayerBitmap)
+    lastInteractiveHighQualityRenderNs = System.nanoTime()
+    lastInteractiveHighQualityScale = scale
+  }
+
+  private fun endPinch() {
+    if (!isPinching) return
+    isPinching = false
+    lastPinchDistance = 0f
+    val durationMs = (System.nanoTime() - pinchGestureStartNs) / 1_000_000f
+    val avgRenderMs =
+      if (pinchRenderFrames > 0) pinchRenderAccumNs.toFloat() / pinchRenderFrames / 1_000_000f else 0f
+    val avgPreviewCoverage =
+      if (previewFrames > 0) previewCoverageAccum / previewFrames else 1f
+    Log.d(
+      PDFEditorConstants.ACTION_TAG,
+      "zoom-metrics durationMs=$durationMs events=$pinchEvents frames=$pinchRenderFrames avgRenderMs=$avgRenderMs previewFrames=$previewFrames previewFallbacks=$previewFallbackFrames avgPreviewCoverage=$avgPreviewCoverage",
+    )
+    render(true)
+  }
+
+  private fun applyScaleAroundFocus(newScale: Float, focus: PointF) {
+    val oldScale = scale
+    if (newScale == oldScale) return
+
+    val oldOffset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * oldScale
+    val contentX = (focus.x - oldOffset.x) / oldScale
+    val contentY = (focus.y - oldOffset.y) / oldScale
+
+    scale = newScale
+    val newOffset = PointF(
+      focus.x - contentX * newScale,
+      focus.y - contentY * newScale,
+    )
+    movementDifference = newOffset - PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * newScale
+    clampMovementDifference()
+  }
+
+  private fun documentOffset(currentScale: Float): PointF {
+    return movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * currentScale
+  }
+
+  private fun shouldUseInteractivePreview(nowNs: Long, zoomingOut: Boolean): Boolean {
+    if (zoomReferenceBitmap == null) return false
+    val interval = if (zoomingOut) interactiveHighQualityZoomOutIntervalNs else interactiveHighQualityIntervalNs
+    if ((nowNs - lastInteractiveHighQualityRenderNs) >= interval) return false
+    if (zoomingOut && abs(scale - lastInteractiveHighQualityScale) > zoomOutFullRenderThreshold) return false
+    return true
+  }
+
+  private fun renderInteractivePreview(width: Int, height: Int, zoomingOut: Boolean): Boolean {
+    val referenceBitmap = zoomReferenceBitmap
+    if (referenceBitmap == null || referenceBitmap.isRecycled) return false
+    val previewBitmap = obtainLayerBitmap(baseLayerBitmap, width, height, Color.TRANSPARENT)
+    baseLayerBitmap = previewBitmap
+    val previewCanvas = Canvas(previewBitmap)
+    previewCanvas.drawColor(Color.TRANSPARENT)
+
+    val referenceScale = zoomReferenceScale.coerceAtLeast(0.0001f)
+    val scaleFactor = (scale / referenceScale).coerceAtLeast(0.0001f)
+    val targetOffset = documentOffset(scale)
+    val referenceOffset = zoomReferenceOffset
+    val coverage = previewCoverage(referenceBitmap, scaleFactor, targetOffset, referenceOffset, width, height)
+    previewFrames += 1
+    previewCoverageAccum += coverage
+    val hasCoverageGap = zoomingOut && coverage < previewCoverageThreshold
+    if (hasCoverageGap) {
+      previewFallbackFrames += 1
+      if (previewFallbackFrames % 5 == 0) {
+        Log.d(
+          PDFEditorConstants.ACTION_TAG,
+          "preview-coverage-fallback coverage=$coverage threshold=$previewCoverageThreshold",
+        )
+      }
+      return false
+    }
+
+    previewCanvas.save()
+    previewCanvas.translate(targetOffset.x, targetOffset.y)
+    previewCanvas.scale(scaleFactor, scaleFactor)
+    previewCanvas.translate(-referenceOffset.x, -referenceOffset.y)
+    previewCanvas.drawBitmap(referenceBitmap, 0f, 0f, null)
+    previewCanvas.restore()
+
+    binding.viewPort.setImageBitmap(previewBitmap)
+    binding.viewPort.invalidate()
+    invalidate()
+    return true
+  }
+
+  private fun previewCoverage(
+    referenceBitmap: Bitmap,
+    scaleFactor: Float,
+    targetOffset: PointF,
+    referenceOffset: PointF,
+    width: Int,
+    height: Int,
+  ): Float {
+    if (width <= 0 || height <= 0) return 1f
+    val left = targetOffset.x - referenceOffset.x * scaleFactor
+    val top = targetOffset.y - referenceOffset.y * scaleFactor
+    val right = left + referenceBitmap.width * scaleFactor
+    val bottom = top + referenceBitmap.height * scaleFactor
+    val intersectionLeft = maxOf(0f, left)
+    val intersectionTop = maxOf(0f, top)
+    val intersectionRight = minOf(width.toFloat(), right)
+    val intersectionBottom = minOf(height.toFloat(), bottom)
+    if (intersectionRight <= intersectionLeft || intersectionBottom <= intersectionTop) return 0f
+    val intersectionArea = (intersectionRight - intersectionLeft) * (intersectionBottom - intersectionTop)
+    val viewportArea = width.toFloat() * height.toFloat()
+    return if (viewportArea <= 0f) 1f else (intersectionArea / viewportArea).coerceIn(0f, 1f)
+  }
+
+  private fun updateZoomReference(source: Bitmap?) {
+    val sourceBitmap = source
+    if (sourceBitmap == null || sourceBitmap.isRecycled) return
+    val referenceBitmap = obtainLayerBitmap(
+      zoomReferenceBitmap,
+      sourceBitmap.width,
+      sourceBitmap.height,
+      Color.TRANSPARENT,
+    )
+    zoomReferenceBitmap = referenceBitmap
+    Canvas(referenceBitmap).drawBitmap(sourceBitmap, 0f, 0f, null)
+    zoomReferenceScale = scale
+    zoomReferenceOffset = documentOffset(scale)
   }
 }
