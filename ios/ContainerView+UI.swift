@@ -4,6 +4,11 @@ import UIKit
 
 extension ContainerView {
 
+  private enum BottomOverlayAppearance {
+    static let previewBackgroundColor = UIColor.black.withAlphaComponent(0.60)
+    static let editBackgroundColor = UIColor.black
+  }
+
   func setEditModeImpl(_ isEdit: Bool) {
     let wasEditMode = self.isEditMode
     if wasEditMode == isEdit { return }
@@ -41,7 +46,7 @@ extension ContainerView {
     let fileSwitcher = FileSwitcher()
     fileSwitcher.translatesAutoresizingMaskIntoConstraints = false
     fileSwitcher.delegate = self
-    fileSwitcher.backgroundColor = UIColor.black.withAlphaComponent(0.35)
+    fileSwitcher.backgroundColor = .clear
 
     let editControls = makeEditControlsContainer()
 
@@ -85,6 +90,7 @@ extension ContainerView {
     self.pdfView = pdfView
     self.fileSwitcher = fileSwitcher
     self.bottomOverlayContainer = bottomOverlayContainer
+    updateBottomOverlayAppearance()
     updateBottomControlsVisibility()
     updateUndoRedoButtons(canUndo: false, canRedo: false)
   }
@@ -93,8 +99,16 @@ extension ContainerView {
     fileSwitcher?.isHidden = isEditMode
     editControlsContainer?.isHidden = !isEditMode
     bottomOverlayContainer?.isHidden = false
+    updateBottomOverlayAppearance()
     updateBottomOverlayLayout()
     updatePDFBottomInset()
+  }
+
+  func updateBottomOverlayAppearance() {
+    bottomOverlayContainer?.backgroundColor =
+      isEditMode
+      ? BottomOverlayAppearance.editBackgroundColor
+      : BottomOverlayAppearance.previewBackgroundColor
   }
 
   func updateBottomOverlayLayout() {
@@ -139,7 +153,7 @@ extension ContainerView {
   func makeEditControlsContainer() -> UIView {
     let containerView = UIView()
     containerView.translatesAutoresizingMaskIntoConstraints = false
-    containerView.backgroundColor = UIColor.black.withAlphaComponent(0.35)
+    containerView.backgroundColor = .clear
 
     // Create circular background view for undo button
     let undoBackgroundView = UIView()

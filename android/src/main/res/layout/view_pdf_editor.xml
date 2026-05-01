@@ -14,13 +14,13 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-        <FrameLayout
-            android:id="@+id/bottom_controls"
-            android:layout_width="0dp"
-            android:layout_height="@dimen/pdfeditor_preview_panel_height"
-            android:background="#59000000"
-            android:elevation="6dp"
-            app:layout_constraintBottom_toBottomOf="parent"
+    <FrameLayout
+        android:id="@+id/bottom_controls"
+        android:layout_width="0dp"
+        android:layout_height="@dimen/pdfeditor_preview_panel_height"
+        android:background="@android:color/transparent"
+        android:elevation="6dp"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 

@@ -39,6 +39,8 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 class PDFEditorView(context: Context) : ConstraintLayout(context) {
+  private val previewPanelBackgroundColor = Color.argb(153, 0, 0, 0)
+  private val editPanelBackgroundColor = Color.BLACK
   private var editMode: Boolean = false
   private var bottomOverlayInsetPx: Int = 0
   private var systemBottomInsetPx: Int = 0
@@ -152,6 +154,9 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     binding.editControlsContainer.isVisible = editMode
     binding.previewList.isVisible = !editMode
     binding.bottomControls.isVisible = true
+    binding.bottomControls.setBackgroundColor(
+      if (editMode) editPanelBackgroundColor else previewPanelBackgroundColor
+    )
 
     binding.bottomControls.requestLayout()
 
