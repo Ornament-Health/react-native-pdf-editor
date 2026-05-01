@@ -14,13 +14,13 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <FrameLayout
-        android:id="@+id/bottom_controls"
-        android:layout_width="0dp"
-        android:layout_height="112dp"
-        android:background="#59000000"
-        android:elevation="6dp"
-        app:layout_constraintBottom_toBottomOf="parent"
+        <FrameLayout
+            android:id="@+id/bottom_controls"
+            android:layout_width="0dp"
+            android:layout_height="@dimen/pdfeditor_preview_panel_height"
+            android:background="#59000000"
+            android:elevation="6dp"
+            app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -58,10 +58,10 @@
             android:id="@+id/preview_list"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
+            android:paddingStart="@dimen/pdfeditor_preview_panel_horizontal_padding"
+            android:paddingEnd="@dimen/pdfeditor_preview_panel_horizontal_padding"
+            android:paddingTop="@dimen/pdfeditor_preview_panel_vertical_padding"
+            android:paddingBottom="@dimen/pdfeditor_preview_panel_vertical_padding"
             android:clipToPadding="false"
             android:visibility="visible"
             android:elevation="1dp" />

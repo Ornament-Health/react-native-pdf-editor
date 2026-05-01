@@ -16,7 +16,7 @@ class ContainerView: UIView {
   var undoButtonBackgroundView: UIView!
   var redoButtonBackgroundView: UIView!
   let editControlDisabledAlpha: CGFloat = 0.4
-  let bottomControlsHeight: CGFloat = 120
+  let bottomControlsHeight: CGFloat = PreviewPanelMetrics.panelHeight
 
   // MARK: - Configuration
   @objc var options: [String: Any] = [:] {

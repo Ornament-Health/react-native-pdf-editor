@@ -4,15 +4,24 @@ protocol FileSwitcherDelegate: AnyObject {
     func didSelectFile(at index: Int)
 }
 
+enum PreviewPanelMetrics {
+    static let panelHeight: CGFloat = 84
+    static let contentInset: CGFloat = 8
+    static let buttonWidth: CGFloat = 54
+    static let buttonHeight: CGFloat = 68
+    static let buttonSpacing: CGFloat = 8
+    static let sheetSize = CGSize(width: 50, height: 64)
+    static let imageInset: CGFloat = 2
+    static let frontOffset = CGPoint(x: -2, y: -2)
+    static let middleOffset = CGPoint.zero
+    static let backOffset = CGPoint(x: 2, y: 2)
+    static let thumbnailMaxSize = CGSize(width: 46, height: 60)
+}
+
 private final class PreviewThumbnailButton: UIButton {
 
     private enum Metrics {
         static let unselectedScale: CGFloat = 0.88
-        static let imageInset: CGFloat = 3
-        static let sheetSize = CGSize(width: 74, height: 94)
-        static let frontOffset = CGPoint(x: -3, y: -3)
-        static let middleOffset = CGPoint.zero
-        static let backOffset = CGPoint(x: 3, y: 3)
     }
 
     let imageViewContainer = UIImageView()
@@ -37,8 +46,8 @@ private final class PreviewThumbnailButton: UIButton {
     func setMultiPage(_ isMultiPage: Bool) {
         backSheetFar.isHidden = !isMultiPage
         backSheetNear.isHidden = !isMultiPage
-        frontSheetCenterXConstraint?.constant = isMultiPage ? Metrics.frontOffset.x : 0
-        frontSheetCenterYConstraint?.constant = isMultiPage ? Metrics.frontOffset.y : 0
+        frontSheetCenterXConstraint?.constant = isMultiPage ? PreviewPanelMetrics.frontOffset.x : 0
+        frontSheetCenterYConstraint?.constant = isMultiPage ? PreviewPanelMetrics.frontOffset.y : 0
     }
 
     func setPreviewSelected(_ isSelected: Bool) {
@@ -61,9 +70,22 @@ private final class PreviewThumbnailButton: UIButton {
             previewContentView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        configureSheet(backSheetFar, size: Metrics.sheetSize, offset: Metrics.backOffset)
-        configureSheet(backSheetNear, size: Metrics.sheetSize, offset: Metrics.middleOffset)
-        configureSheet(frontSheet, size: Metrics.sheetSize, offset: Metrics.frontOffset, isFrontSheet: true)
+        configureSheet(
+            backSheetFar,
+            size: PreviewPanelMetrics.sheetSize,
+            offset: PreviewPanelMetrics.backOffset
+        )
+        configureSheet(
+            backSheetNear,
+            size: PreviewPanelMetrics.sheetSize,
+            offset: PreviewPanelMetrics.middleOffset
+        )
+        configureSheet(
+            frontSheet,
+            size: PreviewPanelMetrics.sheetSize,
+            offset: PreviewPanelMetrics.frontOffset,
+            isFrontSheet: true
+        )
 
         imageViewContainer.translatesAutoresizingMaskIntoConstraints = false
         imageViewContainer.contentMode = .scaleAspectFit
@@ -72,10 +94,22 @@ private final class PreviewThumbnailButton: UIButton {
         frontSheet.addSubview(imageViewContainer)
 
         NSLayoutConstraint.activate([
-            imageViewContainer.topAnchor.constraint(equalTo: frontSheet.topAnchor, constant: Metrics.imageInset),
-            imageViewContainer.leadingAnchor.constraint(equalTo: frontSheet.leadingAnchor, constant: Metrics.imageInset),
-            imageViewContainer.trailingAnchor.constraint(equalTo: frontSheet.trailingAnchor, constant: -Metrics.imageInset),
-            imageViewContainer.bottomAnchor.constraint(equalTo: frontSheet.bottomAnchor, constant: -Metrics.imageInset)
+            imageViewContainer.topAnchor.constraint(
+                equalTo: frontSheet.topAnchor,
+                constant: PreviewPanelMetrics.imageInset
+            ),
+            imageViewContainer.leadingAnchor.constraint(
+                equalTo: frontSheet.leadingAnchor,
+                constant: PreviewPanelMetrics.imageInset
+            ),
+            imageViewContainer.trailingAnchor.constraint(
+                equalTo: frontSheet.trailingAnchor,
+                constant: -PreviewPanelMetrics.imageInset
+            ),
+            imageViewContainer.bottomAnchor.constraint(
+                equalTo: frontSheet.bottomAnchor,
+                constant: -PreviewPanelMetrics.imageInset
+            )
         ])
     }
 
@@ -118,9 +152,9 @@ private final class PreviewThumbnailButton: UIButton {
 class FileSwitcher: UIView {
 
     private enum Metrics {
-        static let buttonWidth: CGFloat = 80
-        static let buttonHeight: CGFloat = 100
-        static let buttonSpacing: CGFloat = 10
+        static let buttonWidth: CGFloat = PreviewPanelMetrics.buttonWidth
+        static let buttonHeight: CGFloat = PreviewPanelMetrics.buttonHeight
+        static let buttonSpacing: CGFloat = PreviewPanelMetrics.buttonSpacing
     }
 
     weak var delegate: FileSwitcherDelegate?
@@ -161,10 +195,10 @@ class FileSwitcher: UIView {
         addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: PreviewPanelMetrics.contentInset),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: PreviewPanelMetrics.contentInset),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -PreviewPanelMetrics.contentInset),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -PreviewPanelMetrics.contentInset),
 
             stackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
@@ -234,7 +268,7 @@ class FileSwitcher: UIView {
         button.setMultiPage(document.pageCount > 1)
 
         DispatchQueue.global(qos: .background).async {
-            let thumbnail = document.generateThumbnail()
+            let thumbnail = document.generateThumbnail(maxSize: PreviewPanelMetrics.thumbnailMaxSize)
             DispatchQueue.main.async {
                 button.setMultiPage(document.pageCount > 1)
                 button.imageViewContainer.image = thumbnail

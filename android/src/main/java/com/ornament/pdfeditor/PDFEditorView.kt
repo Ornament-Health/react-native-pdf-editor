@@ -18,6 +18,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.itextpdf.kernel.utils.XmlProcessorCreator
+import com.ornament.pdfeditor.R
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.databinding.ViewPdfEditorBinding
 import com.ornament.pdfeditor.document.Document
@@ -49,8 +50,16 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   private lateinit var viewPort: Size
 
   private val previewAdapter = DocumentPreviewAdapter(::onPreviewSelected)
-  private val previewWidthPx = (context.resources.displayMetrics.density * 80f).toInt().coerceAtLeast(1)
-  private val previewHeightPx = (context.resources.displayMetrics.density * 96f).toInt().coerceAtLeast(1)
+  private val previewWidthPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_thumbnail_width).coerceAtLeast(1)
+  private val previewHeightPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_thumbnail_height).coerceAtLeast(1)
+  private val previewItemWidthPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_item_width)
+  private val previewItemSpacingPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_item_spacing)
+  private val previewListSidePaddingPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_panel_horizontal_padding)
   private val documentPreviews = mutableListOf<DocumentPreviewItem>()
   private var activeDocumentIndex = 0
 
@@ -392,10 +401,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     previewAdapter.submit(documentPreviews.toList(), activeDocumentIndex)
     binding.previewList.isVisible = true
 
-    val itemWidthDp = 88 + 12
-    val totalWidthDp = documents.size * itemWidthDp - 12
-    val density = resources.displayMetrics.density
-    val totalWidthPx = (totalWidthDp * density).toInt()
+    val totalWidthPx =
+      documents.size * (previewItemWidthPx + previewItemSpacingPx) - previewItemSpacingPx
     val screenWidth = resources.displayMetrics.widthPixels
     if (totalWidthPx < screenWidth) {
       val paddingPx = (screenWidth - totalWidthPx) / 2
@@ -407,9 +414,9 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       )
     } else {
       binding.previewList.setPadding(
-        (16 * density).toInt(),
+        previewListSidePaddingPx,
         binding.previewList.paddingTop,
-        (16 * density).toInt(),
+        previewListSidePaddingPx,
         binding.previewList.paddingBottom
       )
     }

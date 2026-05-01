@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import com.ornament.pdfeditor.R
 import com.ornament.pdfeditor.databinding.ItemDocumentPreviewBinding
 
 data class DocumentPreviewItem(
@@ -75,7 +76,7 @@ class DocumentPreviewAdapter(
             binding.backSheetFar.visibility = stackVisibility
             binding.backSheetNear.visibility = stackVisibility
             val frontTranslation = if (item.isMultiPage) {
-                binding.root.resources.displayMetrics.density * -4f
+                -binding.root.resources.getDimension(R.dimen.pdfeditor_preview_stack_offset)
             } else {
                 0f
             }

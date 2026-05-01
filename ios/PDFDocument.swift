@@ -60,7 +60,7 @@ class RNPDFDocument {
     }
   }
 
-  func generateThumbnail() -> UIImage? {
+  func generateThumbnail(maxSize: CGSize = PreviewPanelMetrics.thumbnailMaxSize) -> UIImage? {
     guard let documentURL = documentURL else {
       print("RNPDFEditor: can't create URL from string for thumbnail")
       return nil
@@ -70,7 +70,7 @@ class RNPDFDocument {
 
     switch type {
     case .image:
-      return loadImage(fileURL: documentURL)?.resized(to: CGSize(width: 100, height: 100))
+      return loadImage(fileURL: documentURL)?.resizedToFit(within: maxSize)
     case .pdf:
       guard let document = PDFDocument(url: documentURL),
         let firstPage = document.page(at: 0)
@@ -81,7 +81,11 @@ class RNPDFDocument {
       let bounds = firstPage.bounds(for: .cropBox)
       let safeWidth = max(bounds.width, 1)
       let safeHeight = max(bounds.height, 1)
-      let thumbnailSize = CGSize(width: 80, height: 80 * safeHeight / safeWidth)
+      let scale = min(maxSize.width / safeWidth, maxSize.height / safeHeight)
+      let thumbnailSize = CGSize(
+        width: max(1, safeWidth * scale),
+        height: max(1, safeHeight * scale)
+      )
 
       return firstPage.thumbnail(of: thumbnailSize, for: .cropBox)
     }
@@ -128,10 +132,18 @@ extension UIImage {
     return UIGraphicsGetImageFromCurrentImageContext() ?? self
   }
 
-  func resized(to size: CGSize) -> UIImage? {
-    UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
+  func resizedToFit(within maxSize: CGSize) -> UIImage? {
+    let safeWidth = max(size.width, 1)
+    let safeHeight = max(size.height, 1)
+    let scale = min(maxSize.width / safeWidth, maxSize.height / safeHeight)
+    let targetSize = CGSize(
+      width: max(1, safeWidth * scale),
+      height: max(1, safeHeight * scale)
+    )
+
+    UIGraphicsBeginImageContextWithOptions(targetSize, false, 0.0)
     defer { UIGraphicsEndImageContext() }
-    draw(in: CGRect(origin: .zero, size: size))
+    draw(in: CGRect(origin: .zero, size: targetSize))
     return UIGraphicsGetImageFromCurrentImageContext()
   }
 }
