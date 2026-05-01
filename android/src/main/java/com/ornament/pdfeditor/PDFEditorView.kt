@@ -11,6 +11,7 @@ import android.util.Log
 import android.util.Size
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import androidx.appcompat.widget.AppCompatImageButton
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.ViewCompat
@@ -627,8 +628,12 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   private var pinchRenderAccumNs = 0L
   private var pinchRenderFrames = 0
   private var pinchEvents = 0
+  private var lastPinchFocus: PointF? = null
   private var currentDrawing: BezierCurve? = null
-  private var startShapeOnPoint = PointF(0f, 0f)
+  private val drawTouchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+  private var drawDownPoint = PointF(0f, 0f)
+  private var pendingDrawStart = false
+  private var suppressDrawUntilNextDown = false
 
   override fun onTouchEvent(event: MotionEvent): Boolean {
     if (documents.isEmpty()) return false
@@ -642,13 +647,17 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         }
 
         lastPoint = p
-        startShapeOnPoint = p
+        drawDownPoint = p
         currentDrawing = null
+        pendingDrawStart = editMode
+        suppressDrawUntilNextDown = false
+        lastPinchFocus = null
       }
 
       MotionEvent.ACTION_POINTER_DOWN -> {
-        if (editMode && currentDrawing != null) {
-          addShape(startShapeOnPoint)
+        if (editMode) {
+          cancelUnfinishedDrawing()
+          suppressDrawUntilNextDown = true
         }
         if (event.pointerCount >= 2) {
           beginPinch(event)
@@ -656,8 +665,14 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       }
 
       MotionEvent.ACTION_POINTER_UP -> {
-        if (isPinching && event.pointerCount <= 2) {
+        val remainingPointers = event.pointerCount - 1
+        if (isPinching && remainingPointers < 2) {
           endPinch()
+          if (editMode) {
+            suppressDrawUntilNextDown = true
+          }
+        } else if (remainingPointers >= 2) {
+          lastPinchFocus = pinchFocusExcludingPointer(event, event.actionIndex)
         }
         val remainingIndex = if (event.actionIndex == 0) 1 else 0
         if (remainingIndex in 0 until event.pointerCount) {
@@ -670,18 +685,25 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
           val currentPoint = PointF(event.x, event.y)
 
           if (editMode) {
-            val document = documents[activeDocumentIndex]
-            if (currentDrawing == null) {
-              val curve = BezierCurve(options.lineWidth.toFloat(), options.lineColor)
-              document.addDrawing(startShapeOnPoint, curve)
-              currentDrawing = curve
-              val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
-              document.addPointToDrawing(startShapeOnPoint, offset, scale)
+            if (!suppressDrawUntilNextDown) {
+              val document = documents[activeDocumentIndex]
+              if (currentDrawing == null && pendingDrawStart) {
+                if (distanceBetween(drawDownPoint, currentPoint) >= drawTouchSlopPx && document.contains(drawDownPoint)) {
+                  val curve = BezierCurve(options.lineWidth.toFloat(), options.lineColor)
+                  document.addDrawing(drawDownPoint, curve)
+                  currentDrawing = curve
+                  val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
+                  document.addPointToDrawing(drawDownPoint, offset, scale)
+                  pendingDrawStart = false
+                }
+              }
+
+              if (currentDrawing != null) {
+                val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
+                document.addPointToDrawing(currentPoint, offset, scale)
+                render()
+              }
             }
-            val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
-            document.addPointToDrawing(currentPoint, offset, scale)
-            startShapeOnPoint = currentPoint
-            render()
           } else {
             val difMove = currentPoint - lastPoint
             movementDifference = movementDifference + difMove
@@ -695,17 +717,21 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
             beginPinch(event)
           }
 
-          val distance = pinchDistance(event)
-          if (distance <= minPinchDistancePx) return true
-
-          val rawScaleFactor = (distance / lastPinchDistance).let {
-            if (it.isNaN() || it.isInfinite()) 1f else it
-          }
-          val frameScaleFactor = rawScaleFactor.coerceIn(minScaleFactorPerFrame, maxScaleFactorPerFrame)
-          val newScale = (scale * frameScaleFactor).coerceAtLeast(1f).coerceAtMost(PDFEditorConstants.MAX_SCALE)
           val focus = pinchFocus(event)
-          applyScaleAroundFocus(newScale, focus)
-          lastPinchDistance = distance
+          applyPinchPan(focus)
+
+          val distance = pinchDistance(event)
+          if (distance > minPinchDistancePx) {
+            val rawScaleFactor = (distance / lastPinchDistance).let {
+              if (it.isNaN() || it.isInfinite()) 1f else it
+            }
+            val frameScaleFactor = rawScaleFactor.coerceIn(minScaleFactorPerFrame, maxScaleFactorPerFrame)
+            val newScale = (scale * frameScaleFactor).coerceAtLeast(1f).coerceAtMost(PDFEditorConstants.MAX_SCALE)
+            applyScaleAroundFocus(newScale, focus)
+            lastPinchDistance = distance
+          }
+
+          lastPinchFocus = focus
           pinchEvents += 1
           render()
         }
@@ -716,7 +742,12 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
           endPinch()
         }
         if (editMode) {
-          addShape(PointF(event.x, event.y))
+          if (!suppressDrawUntilNextDown && currentDrawing != null) {
+            addShape(PointF(event.x, event.y))
+          } else {
+            cancelUnfinishedDrawing()
+          }
+          pendingDrawStart = false
         }
       }
 
@@ -724,13 +755,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         if (isPinching) {
           endPinch()
         }
-        val document = documents.getOrNull(activeDocumentIndex)
-        val curve = currentDrawing
-        if (document != null && curve != null && !curve.isClosed) {
-          document.undo()
-          currentDrawing = null
-          render()
-        }
+        cancelUnfinishedDrawing()
+        pendingDrawStart = false
       }
     }
 
@@ -748,6 +774,23 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     currentDrawing = null
     updateUndoRedoButtons()
     render()
+  }
+
+  private fun cancelUnfinishedDrawing() {
+    val document = documents.getOrNull(activeDocumentIndex)
+    val curve = currentDrawing
+    if (document != null && curve != null && !curve.isClosed) {
+      document.undo()
+      render()
+    }
+    currentDrawing = null
+    pendingDrawStart = false
+  }
+
+  private fun distanceBetween(a: PointF, b: PointF): Float {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return sqrt(dx * dx + dy * dy)
   }
 
   private fun clearRenderedContent() {
@@ -844,6 +887,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   private fun beginPinch(event: MotionEvent) {
     val distance = pinchDistance(event).coerceAtLeast(minPinchDistancePx)
     lastPinchDistance = distance
+    lastPinchFocus = pinchFocus(event)
     isPinching = true
     pinchGestureStartNs = System.nanoTime()
     pinchRenderAccumNs = 0L
@@ -860,6 +904,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     if (!isPinching) return
     isPinching = false
     lastPinchDistance = 0f
+    lastPinchFocus = null
     val durationMs = (System.nanoTime() - pinchGestureStartNs) / 1_000_000f
     val avgRenderMs =
       if (pinchRenderFrames > 0) pinchRenderAccumNs.toFloat() / pinchRenderFrames / 1_000_000f else 0f
@@ -887,6 +932,28 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     )
     movementDifference = newOffset - PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * newScale
     clampMovementDifference()
+  }
+
+  private fun applyPinchPan(currentFocus: PointF) {
+    val previousFocus = lastPinchFocus ?: return
+    val focusDelta = currentFocus - previousFocus
+    if (focusDelta.x == 0f && focusDelta.y == 0f) return
+    movementDifference = movementDifference + focusDelta
+    clampMovementDifference()
+  }
+
+  private fun pinchFocusExcludingPointer(event: MotionEvent, excludedIndex: Int): PointF? {
+    var sumX = 0f
+    var sumY = 0f
+    var count = 0
+    for (index in 0 until event.pointerCount) {
+      if (index == excludedIndex) continue
+      sumX += event.getX(index)
+      sumY += event.getY(index)
+      count += 1
+    }
+    if (count < 2) return null
+    return PointF(sumX / count, sumY / count)
   }
 
   private fun documentOffset(currentScale: Float): PointF {
