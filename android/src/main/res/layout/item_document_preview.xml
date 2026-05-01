@@ -48,7 +48,12 @@
                 android:adjustViewBounds="true"
                 android:background="@android:color/white"
                 android:contentDescription="@string/pdfeditor_preview_content_description"
-                android:scaleType="fitCenter" />
+                android:scaleType="centerCrop" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/bg_preview_sheet_border" />
 
         </FrameLayout>
 

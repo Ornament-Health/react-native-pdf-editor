@@ -11,10 +11,12 @@ enum PreviewPanelMetrics {
     static let buttonHeight: CGFloat = 68
     static let buttonSpacing: CGFloat = 8
     static let sheetSize = CGSize(width: 50, height: 64)
-    static let imageInset: CGFloat = 2
-    static let frontOffset = CGPoint(x: -2, y: -2)
+    static let borderWidth: CGFloat = 1
+    static let imageInset: CGFloat = 0
+    static let stackOffset: CGFloat = 2
+    static let frontOffset = CGPoint(x: -stackOffset, y: -stackOffset)
     static let middleOffset = CGPoint.zero
-    static let backOffset = CGPoint(x: 2, y: 2)
+    static let backOffset = CGPoint(x: stackOffset, y: stackOffset)
     static let thumbnailMaxSize = CGSize(width: 46, height: 60)
 }
 
@@ -88,7 +90,7 @@ private final class PreviewThumbnailButton: UIButton {
         )
 
         imageViewContainer.translatesAutoresizingMaskIntoConstraints = false
-        imageViewContainer.contentMode = .scaleAspectFit
+        imageViewContainer.contentMode = .scaleAspectFill
         imageViewContainer.backgroundColor = .white
         imageViewContainer.clipsToBounds = true
         frontSheet.addSubview(imageViewContainer)
@@ -121,7 +123,7 @@ private final class PreviewThumbnailButton: UIButton {
     ) {
         sheet.translatesAutoresizingMaskIntoConstraints = false
         sheet.backgroundColor = .white
-        sheet.layer.borderWidth = 1 / UIScreen.main.scale
+        sheet.layer.borderWidth = PreviewPanelMetrics.borderWidth
         sheet.layer.borderColor = UIColor.black.cgColor
         sheet.isUserInteractionEnabled = false
         previewContentView.addSubview(sheet)

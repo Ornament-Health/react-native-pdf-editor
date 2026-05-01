@@ -8,7 +8,7 @@
     <dimen name="pdfeditor_preview_item_spacing">8dp</dimen>
     <dimen name="pdfeditor_preview_sheet_width">50dp</dimen>
     <dimen name="pdfeditor_preview_sheet_height">64dp</dimen>
-    <dimen name="pdfeditor_preview_sheet_inset">2dp</dimen>
+    <dimen name="pdfeditor_preview_sheet_inset">0dp</dimen>
     <dimen name="pdfeditor_preview_stack_offset">2dp</dimen>
     <dimen name="pdfeditor_preview_thumbnail_width">46dp</dimen>
     <dimen name="pdfeditor_preview_thumbnail_height">60dp</dimen>
