@@ -62,8 +62,8 @@ class ImageDocument(
         val copy = imageBitmap.copy(Bitmap.Config.ARGB_8888, true)
         Canvas(copy).drawBitmap(drawingBitmap, 0f, 0f, Paint())
         val outputStream = ByteArrayOutputStream()
-        copy.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-        val outputPath = "$outputDirectory/$filename-edited.png"
+        copy.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
+        val outputPath = "$outputDirectory/$filename-edited.jpg"
         FileOutputStream(outputPath).also { outputFileStream ->
             outputStream.writeTo(outputFileStream)
             outputFileStream.close()

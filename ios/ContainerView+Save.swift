@@ -34,7 +34,7 @@ extension ContainerView {
           continue
         }
 
-        let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".png"
+        let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".jpg"
         let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
 
         guard let page = document.page(at: 0) else {
@@ -44,8 +44,9 @@ extension ContainerView {
 
         let bounds = page.bounds(for: .cropBox)
 
-        let renderer = UIGraphicsImageRenderer(
-          bounds: bounds, format: UIGraphicsImageRendererFormat.default())
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1.0
+        let renderer = UIGraphicsImageRenderer(bounds: bounds, format: format)
 
         let image = renderer.image { context in
           context.cgContext.saveGState()
@@ -55,7 +56,7 @@ extension ContainerView {
           context.cgContext.restoreGState()
         }
 
-        if let data = image.pngData() {
+        if let data = image.jpegData(compressionQuality: 0.85) {
           do {
             try data.write(to: fileURL)
             resultArray.append(fileURL.absoluteString)
