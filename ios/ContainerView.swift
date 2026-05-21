@@ -75,23 +75,36 @@ class ContainerView: UIView {
   }
 
   private func updateWithOptions(_ options: [String: Any]) {
-    documents.removeAll()
-    excludedPages.removeAll()
-    documentHistoryStates.removeAll()
-    pdfDrawers.removeAll()
-    activeDrawer = nil
-    filePaths.removeAll()
-    currentDocumentIndex = 0
-    pdfView.clearPageIndicators()
-
     if let arrayOfPaths = options["files"] as? [String] {
-      filePaths = arrayOfPaths
-      for (index, value) in filePaths.enumerated() {
-        if let document = RNPDFDocument(id: index, path: value) {
-          documents.append(document)
+      let unchanged = !documents.isEmpty && arrayOfPaths == filePaths
+      let isPureAppend = !documents.isEmpty
+        && isAppendOnly(oldPaths: filePaths, newPaths: arrayOfPaths)
+
+      if unchanged {
+        // No file-list change; only drawer/icon options below need updating.
+      } else if isPureAppend {
+        // Old paths are a strict prefix of new paths: keep drawings, history,
+        // current page and excluded pages on existing documents; only build the
+        // appended ones.
+        appendDocuments(arrayOfPaths)
+      } else {
+        documents.removeAll()
+        excludedPages.removeAll()
+        documentHistoryStates.removeAll()
+        pdfDrawers.removeAll()
+        activeDrawer = nil
+        filePaths.removeAll()
+        currentDocumentIndex = 0
+        pdfView.clearPageIndicators()
+
+        filePaths = arrayOfPaths
+        for (index, value) in filePaths.enumerated() {
+          if let document = RNPDFDocument(id: index, path: value) {
+            documents.append(document)
+          }
         }
+        self.renderDocuments(for: documents)
       }
-      self.renderDocuments(for: documents)
     } else {
       print("RNPDFEditor: \"files\" value is wrong")
     }
@@ -141,6 +154,26 @@ class ContainerView: UIView {
 
     fileSwitcher.configure(with: documents, selectedIndex: currentDocumentIndex)
     renderDocument(at: 0)
+  }
+
+  private func isAppendOnly(oldPaths: [String], newPaths: [String]) -> Bool {
+    guard !oldPaths.isEmpty else { return false }
+    guard newPaths.count > oldPaths.count else { return false }
+    for i in oldPaths.indices where oldPaths[i] != newPaths[i] {
+      return false
+    }
+    return true
+  }
+
+  private func appendDocuments(_ newPaths: [String]) {
+    let startIndex = documents.count
+    for i in startIndex..<newPaths.count {
+      if let document = RNPDFDocument(id: i, path: newPaths[i]) {
+        documents.append(document)
+      }
+    }
+    filePaths = newPaths
+    fileSwitcher.configure(with: documents, selectedIndex: currentDocumentIndex)
   }
 
   private func loadDocument(_ document: RNPDFDocument, completion: @escaping (PDFDocument?) -> Void)

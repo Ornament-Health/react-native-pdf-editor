@@ -9,84 +9,52 @@ extension ContainerView {
       return
     }
 
-    var params: [AnyHashable: Any] = ["url": NSNull()]
-    var resultArray = [String]()
+    // Snapshot the inputs while still on the main queue so we don't race the
+    // mutable container state during file I/O on the background queue.
+    let documentsSnapshot = documents
+    let excludedSnapshot = excludedPages
 
-    let today = Date()
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+    let saveQueue = DispatchQueue(
+      label: "com.ornament.pdfeditor.save",
+      qos: .userInitiated
+    )
 
-    for item in documents {
-      guard let document = documentForSaving(item) else {
-        print("RNPDFEditor: unable to load document with id \(item.id)")
-        continue
+    saveQueue.async { [weak self] in
+      guard let self = self else { return }
+
+      let formatter = DateFormatter()
+      formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+      let dateString = formatter.string(from: Date())
+
+      var resultArray = [String]()
+
+      for item in documentsSnapshot {
+        guard let document = self.documentForSaving(item) else {
+          print("RNPDFEditor: unable to load document with id \(item.id)")
+          continue
+        }
+
+        let excluded = excludedSnapshot[item.id] ?? []
+
+        if let path = self.writeDocument(
+          item: item,
+          document: document,
+          excluded: excluded,
+          dateString: dateString
+        ) {
+          resultArray.append(path)
+        }
       }
 
-      let excluded = excludedPages[item.id] ?? []
+      var params: [AnyHashable: Any] = ["url": NSNull()]
+      if !resultArray.isEmpty {
+        params["url"] = resultArray
+      }
 
-      if item.type == .image {
-        guard !excluded.contains(0) else { continue }
-
-        guard let fileNameWithExt = item.incomingPath.components(separatedBy: "/").last,
-          let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first
-        else {
-          print("RNPDFEditor: can't handle URL")
-          continue
-        }
-
-        let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".jpg"
-        let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
-
-        guard let page = document.page(at: 0) else {
-          print("RNPDFEditor: image with path \(item.incomingPath) not writed locally")
-          continue
-        }
-
-        let bounds = page.bounds(for: .cropBox)
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1.0
-        let renderer = UIGraphicsImageRenderer(bounds: bounds, format: format)
-
-        let image = renderer.image { context in
-          context.cgContext.saveGState()
-          context.cgContext.translateBy(x: 0, y: bounds.height)
-          context.cgContext.concatenate(CGAffineTransform(scaleX: 1, y: -1))
-          page.draw(with: .mediaBox, to: context.cgContext)
-          context.cgContext.restoreGState()
-        }
-
-        if let data = image.jpegData(compressionQuality: 0.85) {
-          do {
-            try data.write(to: fileURL)
-            resultArray.append(fileURL.absoluteString)
-          } catch {
-            print("RNPDFEditor: can't create image for saving")
-          }
-        }
-      } else {
-        guard let fileNameWithExt = item.incomingPath.components(separatedBy: "/").last,
-          let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first
-        else {
-          print("RNPDFEditor: can't handle URL")
-          continue
-        }
-
-        let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".pdf"
-        let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
-
-        if document.write(to: fileURL) {
-          resultArray.append(fileURL.absoluteString)
-        } else {
-          print("RNPDFEditor: failed write PDF for id \(item.id)")
-        }
+      DispatchQueue.main.async {
+        onSavePDF(params)
       }
     }
-
-    if !resultArray.isEmpty {
-      params["url"] = resultArray
-    }
-    onSavePDF(params)
   }
 
   func getDocumentsDirectory() -> URL {
@@ -98,13 +66,79 @@ extension ContainerView {
     if let rendered = document.renderedDocument {
       return rendered
     }
-    let sem = DispatchSemaphore(value: 0)
+    // convert() invokes its completion synchronously, so we can collect the
+    // result without a semaphore. If a future change makes it async, callers
+    // should be migrated to the async resolver.
     var loaded: PDFDocument?
     document.convert { converted in
       loaded = converted
-      sem.signal()
     }
-    _ = sem.wait(timeout: .now() + 5)
+    if let loaded = loaded {
+      document.renderedDocument = loaded
+    }
     return loaded
+  }
+
+  private func writeDocument(
+    item: RNPDFDocument,
+    document: PDFDocument,
+    excluded: Set<Int>,
+    dateString: String
+  ) -> String? {
+    guard
+      let fileNameWithExt = item.incomingPath.components(separatedBy: "/").last,
+      let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first
+    else {
+      print("RNPDFEditor: can't handle URL")
+      return nil
+    }
+
+    if item.type == .image {
+      guard !excluded.contains(0) else { return nil }
+
+      let newPathComponent = fileNameRaw + "_" + dateString + ".jpg"
+      let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
+
+      guard let page = document.page(at: 0) else {
+        print("RNPDFEditor: image with path \(item.incomingPath) not writed locally")
+        return nil
+      }
+
+      let bounds = page.bounds(for: .cropBox)
+
+      let format = UIGraphicsImageRendererFormat.default()
+      format.scale = 1.0
+      let renderer = UIGraphicsImageRenderer(bounds: bounds, format: format)
+
+      let image = renderer.image { context in
+        context.cgContext.saveGState()
+        context.cgContext.translateBy(x: 0, y: bounds.height)
+        context.cgContext.concatenate(CGAffineTransform(scaleX: 1, y: -1))
+        page.draw(with: .mediaBox, to: context.cgContext)
+        context.cgContext.restoreGState()
+      }
+
+      guard let data = image.jpegData(compressionQuality: 0.85) else {
+        print("RNPDFEditor: can't create image for saving")
+        return nil
+      }
+
+      do {
+        try data.write(to: fileURL)
+        return fileURL.absoluteString
+      } catch {
+        print("RNPDFEditor: can't create image for saving")
+        return nil
+      }
+    }
+
+    let newPathComponent = fileNameRaw + "_" + dateString + ".pdf"
+    let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
+
+    if document.write(to: fileURL) {
+      return fileURL.absoluteString
+    }
+    print("RNPDFEditor: failed write PDF for id \(item.id)")
+    return nil
   }
 }

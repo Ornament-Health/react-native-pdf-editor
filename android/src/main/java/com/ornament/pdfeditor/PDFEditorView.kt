@@ -301,18 +301,44 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     if (shouldReload) {
       renderingJob?.cancel()
       renderingJob = null
-      buildDocuments(filePaths)
-      reset()
-      activeDocumentIndex = 0
-      excludedPages.clear()
-      lastPageBounds = emptyMap()
-      centerDocuments()
-      prepareDocumentPreviews()
+      if (documents.isNotEmpty() && isAppendOnly(currentFilePaths, filePaths)) {
+        // Old paths are a strict prefix of new paths: keep drawings, history,
+        // active page and excluded pages on existing documents; only construct
+        // the appended ones.
+        appendDocuments(filePaths)
+        prepareDocumentPreviews()
+      } else {
+        buildDocuments(filePaths)
+        reset()
+        activeDocumentIndex = 0
+        excludedPages.clear()
+        lastPageBounds = emptyMap()
+        centerDocuments()
+        prepareDocumentPreviews()
+      }
     } else {
       recalculateDocumentLayout()
     }
     clampMovementDifference()
     render(refresh || shouldReload)
+  }
+
+  private fun isAppendOnly(oldPaths: List<String>, newPaths: List<String>): Boolean {
+    if (oldPaths.isEmpty()) return false
+    if (newPaths.size <= oldPaths.size) return false
+    for (i in oldPaths.indices) {
+      if (oldPaths[i] != newPaths[i]) return false
+    }
+    return true
+  }
+
+  private fun appendDocuments(filePaths: List<String>) {
+    val startIndex = documents.size
+    for (i in startIndex until filePaths.size) {
+      Document.create(filePaths[i], context.contentResolver).also { documents.add(it) }
+    }
+    currentFilePaths = filePaths
+    recalculateDocumentLayout()
   }
 
   private var onSavePDFAction: (paths: List<String>?) -> Unit = {}
@@ -349,10 +375,10 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   fun save() {
     coroutineScope.launch(Dispatchers.IO) {
-      var outputs: MutableList<String>? = mutableListOf()
+      val outputs = mutableListOf<String>()
       documents.forEachIndexed { index, document ->
         val excluded = excludedPages[index] ?: emptySet()
-        saveDocument(document, excluded)?.let { outputs?.add(it) }
+        saveDocument(document, excluded)?.let { outputs.add(it) }
       }
       onSavePDFAction(outputs)
     }

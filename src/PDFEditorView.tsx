@@ -138,11 +138,9 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       }
     };
 
-    const getURLString = (nativeEvent: any) => {
-      if (nativeEvent.hasOwnProperty('url')) {
-        return nativeEvent.url;
-      }
-      return null;
+    const getURLs = (nativeEvent: { url?: string[] | null }): string[] | null => {
+      const value = nativeEvent.url;
+      return Array.isArray(value) ? value : null;
     };
 
     return (
@@ -150,7 +148,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
         ref={componentRef}
         options={mergedOptions}
         onSavePDF={(event: SyntheticEvent) =>
-          onSavePDF?.(getURLString(event.nativeEvent))
+          onSavePDF?.(getURLs(event.nativeEvent as { url?: string[] | null }))
         }
         {...props}
       />

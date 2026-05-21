@@ -35,28 +35,33 @@ class RNPDFDocument {
   func convert(completion: @escaping ((PDFDocument?) -> Void)) {
     guard let documentURL = documentURL else {
       print("RNPDFEditor: can't create URL from string")
+      completion(nil)
       return
     }
     switch type {
     case .image:
-      if let image = loadImage(fileURL: documentURL) {
-        let document = PDFDocument()
-        let pdfPage = PDFPage(image: image)
-        document.insert(pdfPage!, at: 0)
-        self.pageCount = document.pageCount
-        completion(document)
-      } else {
+      guard let image = loadImage(fileURL: documentURL) else {
         print("RNPDFEditor: can't create Image from URL")
+        completion(nil)
         return
       }
+      guard let pdfPage = PDFPage(image: image) else {
+        print("RNPDFEditor: can't create PDFPage from image at \(documentURL)")
+        completion(nil)
+        return
+      }
+      let document = PDFDocument()
+      document.insert(pdfPage, at: 0)
+      self.pageCount = document.pageCount
+      completion(document)
     case .pdf:
-      if let document = PDFDocument(url: documentURL) {
-        self.pageCount = document.pageCount
-        completion(document)
-      } else {
+      guard let document = PDFDocument(url: documentURL) else {
         print("RNPDFEditor: can't create PDF from URL")
+        completion(nil)
         return
       }
+      self.pageCount = document.pageCount
+      completion(document)
     }
   }
 
