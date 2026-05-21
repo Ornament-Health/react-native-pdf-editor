@@ -61,4 +61,13 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
             }
         }
     }
+
+    override fun onDropViewInstance(view: PDFEditorView) {
+        // Called by React Native (Paper and Fabric) when the View is being
+        // permanently removed. Routine View detach (e.g. another screen covering
+        // the editor) goes through onDetachedFromWindow, which intentionally
+        // does NOT clean up — see PDFEditorView.dispose for the full rationale.
+        view.dispose()
+        super.onDropViewInstance(view)
+    }
 }

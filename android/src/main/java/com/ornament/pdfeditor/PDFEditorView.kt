@@ -122,7 +122,10 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     binding.previewList.apply {
       layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
       adapter = previewAdapter
-      setHasFixedSize(true)
+      // Disable item animator: with Fabric, item-add animations can pin the
+      // layout pass into a "pending" state that never completes, leaving the
+      // newly-inserted second item un-bound on screen.
+      itemAnimator = null
     }
     binding.viewPort.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
       updateViewPortSize()
@@ -374,7 +377,12 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       return
     }
     filePaths.forEach { path ->
-      Document.create(path, context.contentResolver).also { documents.add(it) }
+      try {
+        documents.add(Document.create(path, context.contentResolver))
+      } catch (_: Throwable) {
+        // Skip unreadable paths (e.g. cache file that was unlinked by an
+        // earlier editor session) rather than aborting the whole rebuild.
+      }
     }
     recalculateDocumentLayout()
   }
@@ -389,48 +397,63 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   }
 
   private fun prepareDocumentPreviews() {
-    recycleDocumentPreviews()
-
-    documents.forEachIndexed { index, document ->
-      val thumbnail = document.generateThumbnail(previewWidthPx, previewHeightPx)
-      if (thumbnail == null) {
-        Log.w("RNPDFEditor", "Thumbnail is null for index=$index type=${document.javaClass.simpleName}")
-      }
-      documentPreviews.add(
-        DocumentPreviewItem(
-          index = index,
-          thumbnail = thumbnail,
-          isMultiPage = document.pageCount > 1,
-        )
+    // Build the new items first, then swap with a single adapter submit. A
+    // prior two-phase submit(empty) + submit(items) pattern caused stale
+    // children to remain on screen when the empty submit and the populated
+    // submit landed in the same frame under Fabric.
+    val newItems = documents.mapIndexed { index, document ->
+      DocumentPreviewItem(
+        index = index,
+        thumbnail = document.generateThumbnail(previewWidthPx, previewHeightPx),
+        isMultiPage = document.pageCount > 1,
       )
     }
+    documentPreviews.clear()
+    documentPreviews.addAll(newItems)
+
+    // Update padding BEFORE submit so the layout pass sees the correct content
+    // area. Each item carries android:layout_marginEnd uniformly, including the
+    // last one, so LinearLayoutManager consumes (itemWidth + spacing) of
+    // horizontal space per item — totalWidthPx must include the trailing
+    // spacing of the final item or the last item gets clipped off-screen.
+    val totalWidthPx =
+      documents.size * (previewItemWidthPx + previewItemSpacingPx)
+    val screenWidth = resources.displayMetrics.widthPixels
+    val sidePadding = if (totalWidthPx < screenWidth) {
+      (screenWidth - totalWidthPx) / 2
+    } else {
+      previewListSidePaddingPx
+    }
+    binding.previewList.setPadding(
+      sidePadding,
+      binding.previewList.paddingTop,
+      sidePadding,
+      binding.previewList.paddingBottom
+    )
+
     previewAdapter.submit(documentPreviews.toList(), activeDocumentIndex)
     binding.previewList.isVisible = true
-
-    val totalWidthPx =
-      documents.size * (previewItemWidthPx + previewItemSpacingPx) - previewItemSpacingPx
-    val screenWidth = resources.displayMetrics.widthPixels
-    if (totalWidthPx < screenWidth) {
-      val paddingPx = (screenWidth - totalWidthPx) / 2
-      binding.previewList.setPadding(
-        paddingPx,
-        binding.previewList.paddingTop,
-        paddingPx,
-        binding.previewList.paddingBottom
-      )
-    } else {
-      binding.previewList.setPadding(
-        previewListSidePaddingPx,
-        binding.previewList.paddingTop,
-        previewListSidePaddingPx,
-        binding.previewList.paddingBottom
-      )
+    binding.previewList.scrollToPosition(activeDocumentIndex.coerceAtLeast(0))
+    // Force the RecyclerView to honor the data change even when the parent
+    // (a Fabric-managed custom native view) does not propagate requestLayout
+    // up the tree. Without this manual measure+layout, newly-inserted items
+    // stay un-bound on screen when the editor returns from a covered state.
+    binding.previewList.requestLayout()
+    binding.previewList.invalidate()
+    binding.previewList.post {
+      val rv = binding.previewList
+      if (rv.width > 0 && rv.height > 0) {
+        rv.measure(
+          android.view.View.MeasureSpec.makeMeasureSpec(rv.width, android.view.View.MeasureSpec.EXACTLY),
+          android.view.View.MeasureSpec.makeMeasureSpec(rv.height, android.view.View.MeasureSpec.EXACTLY),
+        )
+        rv.layout(rv.left, rv.top, rv.right, rv.bottom)
+      }
     }
   }
 
   private fun recycleDocumentPreviews() {
     previewAdapter.submit(emptyList(), 0)
-    documentPreviews.forEach { it.thumbnail?.recycle() }
     documentPreviews.clear()
   }
 
@@ -822,6 +845,18 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   override fun onDetachedFromWindow() {
     super.onDetachedFromWindow()
+    // Cancel any in-flight render so we don't draw into a detached view, but
+    // do NOT recycle previews / release documents. Under Fabric +
+    // react-native-screens 4 with detachPreviousScreen=true this view is
+    // detached and reattached every time another screen covers the editor
+    // (e.g. the "Add more" → Camera round trip). Real cleanup lives in
+    // [dispose], called from the ViewManager's onDropViewInstance when the
+    // view is truly being destroyed.
+    renderingJob?.cancel()
+    renderingJob = null
+  }
+
+  fun dispose() {
     renderingJob?.cancel()
     renderingJob = null
     binding.viewPort.setImageBitmap(null)
@@ -905,15 +940,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     isPinching = false
     lastPinchDistance = 0f
     lastPinchFocus = null
-    val durationMs = (System.nanoTime() - pinchGestureStartNs) / 1_000_000f
-    val avgRenderMs =
-      if (pinchRenderFrames > 0) pinchRenderAccumNs.toFloat() / pinchRenderFrames / 1_000_000f else 0f
-    val avgPreviewCoverage =
-      if (previewFrames > 0) previewCoverageAccum / previewFrames else 1f
-    Log.d(
-      PDFEditorConstants.ACTION_TAG,
-      "zoom-metrics durationMs=$durationMs events=$pinchEvents frames=$pinchRenderFrames avgRenderMs=$avgRenderMs previewFrames=$previewFrames previewFallbacks=$previewFallbackFrames avgPreviewCoverage=$avgPreviewCoverage",
-    )
     render(true)
   }
 
@@ -986,12 +1012,6 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     val hasCoverageGap = zoomingOut && coverage < previewCoverageThreshold
     if (hasCoverageGap) {
       previewFallbackFrames += 1
-      if (previewFallbackFrames % 5 == 0) {
-        Log.d(
-          PDFEditorConstants.ACTION_TAG,
-          "preview-coverage-fallback coverage=$coverage threshold=$previewCoverageThreshold",
-        )
-      }
       return false
     }
 

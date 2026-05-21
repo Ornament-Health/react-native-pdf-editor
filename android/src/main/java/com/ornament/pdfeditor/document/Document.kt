@@ -93,7 +93,7 @@ abstract class Document {
                         else -> throw Exception("RNPDFEditor: Unexpected scheme '$scheme'")
                     }.let { mime ->
                         when (mime) {
-                            "image/jpeg", "image/png" -> ImageDocument(filename, parcelFileDescriptor)
+                            "image/jpeg", "image/png" -> ImageDocument(filename, parcelFileDescriptor, uri)
                             "application/pdf" -> PdfDocument(filename, parcelFileDescriptor)
                             else -> throw Exception("RNPDFEditor: Unexpected mime type '$mime'")
                         }

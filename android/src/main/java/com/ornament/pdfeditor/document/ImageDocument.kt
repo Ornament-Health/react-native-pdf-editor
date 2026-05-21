@@ -1,5 +1,6 @@
 package com.ornament.pdfeditor.document
 
+import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -7,13 +8,18 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.RectF
+import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.system.Os
+import android.system.OsConstants
 import android.util.Size
 import android.util.SizeF
+import androidx.core.net.toFile
 import androidx.exifinterface.media.ExifInterface
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.drawing.BezierCurve
 import java.io.ByteArrayOutputStream
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import kotlin.collections.ArrayDeque
 import kotlin.math.max
@@ -21,7 +27,8 @@ import kotlin.math.min
 
 class ImageDocument(
     override val filename: String,
-    override val parcelFileDescriptor: ParcelFileDescriptor
+    override val parcelFileDescriptor: ParcelFileDescriptor,
+    private val sourceUri: Uri
 ) : Document() {
 
     private lateinit var imageBitmap: Bitmap
@@ -73,15 +80,22 @@ class ImageDocument(
     }
 
     init {
-        decodeImage()?.let { imageBitmap = it }
+        // Read EXIF orientation BEFORE decoding. BitmapFactory.decodeFileDescriptor
+        // advances the FD to EOF and ParcelFileDescriptor.dup shares the offset,
+        // so reading EXIF afterwards returns ORIENTATION_UNDEFINED and gallery
+        // photos render rotated 90° left.
+        val orientation = readExifOrientation()
+        decodeImage()?.let { imageBitmap = applyExifOrientation(it, orientation) }
         size = with(imageBitmap) { SizeF(width.toFloat(), height.toFloat()) }
     }
 
-    private fun decodeImage(): Bitmap? =
-        BitmapFactory.decodeFileDescriptor(parcelFileDescriptor.fileDescriptor)?.let(::applyExifOrientation)
+    private fun decodeImage(): Bitmap? {
+        rewindFileDescriptor(parcelFileDescriptor.fileDescriptor)
+        return BitmapFactory.decodeFileDescriptor(parcelFileDescriptor.fileDescriptor)
+    }
 
-    private fun applyExifOrientation(bitmap: Bitmap): Bitmap {
-        return when (readExifOrientation()) {
+    private fun applyExifOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
+        return when (orientation) {
             ExifInterface.ORIENTATION_ROTATE_90 -> rotateBitmap(bitmap, 90f)
             ExifInterface.ORIENTATION_ROTATE_180 -> rotateBitmap(bitmap, 180f)
             ExifInterface.ORIENTATION_ROTATE_270 -> rotateBitmap(bitmap, 270f)
@@ -93,17 +107,42 @@ class ImageDocument(
         }
     }
 
-    private fun readExifOrientation(): Int =
-        try {
-            ParcelFileDescriptor.dup(parcelFileDescriptor.fileDescriptor).use { descriptor ->
-                ExifInterface(descriptor.fileDescriptor).getAttributeInt(
+    private fun readExifOrientation(): Int {
+        // Prefer reading EXIF directly from the file path — the most reliable
+        // method, immune to file-descriptor offset issues that affect
+        // ExifInterface(FileDescriptor) after BitmapFactory has consumed the FD.
+        if (sourceUri.scheme == ContentResolver.SCHEME_FILE) {
+            try {
+                return ExifInterface(sourceUri.toFile().absolutePath).getAttributeInt(
                     ExifInterface.TAG_ORIENTATION,
                     ExifInterface.ORIENTATION_UNDEFINED
                 )
+            } catch (_: Exception) {
+                // Fall through to the FD-based reader.
+            }
+        }
+        return try {
+            ParcelFileDescriptor.dup(parcelFileDescriptor.fileDescriptor).use { descriptor ->
+                rewindFileDescriptor(descriptor.fileDescriptor)
+                FileInputStream(descriptor.fileDescriptor).use { stream ->
+                    ExifInterface(stream).getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_UNDEFINED
+                    )
+                }
             }
         } catch (_: Exception) {
             ExifInterface.ORIENTATION_UNDEFINED
         }
+    }
+
+    private fun rewindFileDescriptor(fd: java.io.FileDescriptor) {
+        try {
+            Os.lseek(fd, 0, OsConstants.SEEK_SET)
+        } catch (_: Exception) {
+            // ignore — non-seekable FDs will still work with the JPEG decoder/ExifInterface
+        }
+    }
 
     private fun rotateBitmap(
         bitmap: Bitmap,

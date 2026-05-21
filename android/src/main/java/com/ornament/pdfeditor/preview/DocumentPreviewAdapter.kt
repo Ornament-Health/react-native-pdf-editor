@@ -22,10 +22,29 @@ class DocumentPreviewAdapter(
     private var selectedIndex: Int = 0
 
     fun submit(newItems: List<DocumentPreviewItem>, selectedIndex: Int) {
+        val oldSize = items.size
+        val newSize = newItems.size
         items.clear()
         items.addAll(newItems)
         this.selectedIndex = selectedIndex
-        notifyDataSetChanged()
+        // Use targeted notifications. Under Fabric, plain notifyDataSetChanged
+        // sometimes does not trigger a fresh layout pass when the host's
+        // parent already considers its size fixed, leaving newly-appended
+        // items un-bound. Range-specific notifications force the RecyclerView
+        // to insert/remove children, which is honored even in that case.
+        when {
+            oldSize == 0 && newSize > 0 -> notifyItemRangeInserted(0, newSize)
+            oldSize > 0 && newSize == 0 -> notifyItemRangeRemoved(0, oldSize)
+            newSize > oldSize -> {
+                if (oldSize > 0) notifyItemRangeChanged(0, oldSize)
+                notifyItemRangeInserted(oldSize, newSize - oldSize)
+            }
+            newSize < oldSize -> {
+                if (newSize > 0) notifyItemRangeChanged(0, newSize)
+                notifyItemRangeRemoved(newSize, oldSize - newSize)
+            }
+            else -> notifyItemRangeChanged(0, newSize)
+        }
     }
 
     fun updateSelection(newIndex: Int) {

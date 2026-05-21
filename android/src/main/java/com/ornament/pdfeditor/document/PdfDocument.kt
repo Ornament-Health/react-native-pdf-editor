@@ -76,9 +76,14 @@ class PdfDocument(
 
         includedPages.forEachIndexed { destinationIndex, pageIndex ->
             pdfDocument.copyPagesTo(pageIndex + 1, pageIndex + 1, copy)
-            PdfCanvas(copy.getPage(destinationIndex + 1)).let { pdfCanvas ->
+            val sourcePage = pdfDocument.getPage(pageIndex + 1)
+            val rotation = sourcePage.getRotation()
+            val mediaBox = sourcePage.getMediaBox()
+            val mediaSize = SizeF(mediaBox.getWidth(), mediaBox.getHeight())
+            val copyPage = copy.getPage(destinationIndex + 1)
+            PdfCanvas(copyPage, true).let { pdfCanvas ->
                 pagesDrawing.filter { it.first == pageIndex }.forEach {
-                    it.second.drawOnPdfCanvas(pdfCanvas, pageSize, 1f / minScale)
+                    it.second.drawOnPdfCanvas(pdfCanvas, pageSize, 1f / minScale, rotation, mediaSize)
                 }
             }
         }
@@ -130,20 +135,6 @@ class PdfDocument(
         val renderOrder = prioritizedVisiblePages(visibleRange, actualScale, offset, viewPortSize)
         for (pageIndex in renderOrder) {
             showPdfPage(canvas, pageIndex, actualScale, offset, viewPortSize, refresh, interactive)
-        }
-        renderCount += 1
-        if (renderCount % 40L == 0L) {
-            val total = cacheHitCount + cacheMissCount
-            val hitRate = if (total > 0) (cacheHitCount * 100f / total) else 0f
-            val avgPageRenderMs = if (cacheMissCount > 0) {
-                renderPageAccumNs.toFloat() / cacheMissCount / 1_000_000f
-            } else {
-                0f
-            }
-            Log.d(
-                PDFEditorConstants.ACTION_TAG,
-                "pdf-render-metrics interactive=$interactive zoomingOut=$zoomingOut hitRate=$hitRate misses=$cacheMissCount avgPageRenderMs=$avgPageRenderMs"
-            )
         }
     }
 

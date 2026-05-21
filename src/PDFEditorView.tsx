@@ -1,6 +1,7 @@
 import React, {
   forwardRef,
   useImperativeHandle,
+  useMemo,
   useRef,
   SyntheticEvent,
 } from 'react';
@@ -62,18 +63,21 @@ type PDFEVRef = React.ComponentRef<typeof RNComponentViewManager>;
 
 export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
   ({ onSavePDF, options, ...props }, extRef) => {
-    const mergedOptions = {
-      ...DEFAULT_OPTIONS,
-      ...options,
-      drawLine: {
-        ...DEFAULT_OPTIONS.drawLine,
-        ...(options.drawLine ?? {}),
-      },
-      icons: {
-        ...DEFAULT_OPTIONS.icons,
-        ...(options.icons ?? {}),
-      },
-    };
+    const mergedOptions = useMemo(
+      () => ({
+        ...DEFAULT_OPTIONS,
+        ...options,
+        drawLine: {
+          ...DEFAULT_OPTIONS.drawLine,
+          ...(options.drawLine ?? {}),
+        },
+        icons: {
+          ...DEFAULT_OPTIONS.icons,
+          ...(options.icons ?? {}),
+        },
+      }),
+      [options]
+    );
     useImperativeHandle(extRef, () => ({
       undoAction,
       clearAction,
