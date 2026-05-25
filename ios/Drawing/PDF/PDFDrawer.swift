@@ -98,6 +98,17 @@ final class PDFDrawer {
     baselineIndex = 0
     notifyHistoryChanged()
   }
+
+  // Drops only strokes added after the current baseline, preserving prior
+  // committed sessions. Used by the Cancel action so the user keeps drawings
+  // that were already accepted via Done.
+  func revertToBaseline() {
+    let uncommitted = Array(undoStack.suffix(from: baselineIndex)) + redoStack
+    uncommitted.forEach { $0.page.removeAnnotation($0.annotation) }
+    undoStack = Array(undoStack.prefix(baselineIndex))
+    redoStack.removeAll()
+    notifyHistoryChanged()
+  }
 }
 
 // MARK: - DrawingGestureRecognizerDelegate

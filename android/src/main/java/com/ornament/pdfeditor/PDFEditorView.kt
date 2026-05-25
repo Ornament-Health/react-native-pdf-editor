@@ -146,10 +146,16 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   fun setEditMode(isEdit: Boolean) {
     val enteringEditMode = !editMode && isEdit
+    val leavingEditMode = editMode && !isEdit
     editMode = isEdit
     updateBottomControlsVisibility()
     if (enteringEditMode) {
       clearHistoryStacks()
+    }
+    if (leavingEditMode) {
+      // Promote the current drawing set into the per-document committed
+      // snapshot so a later Cancel reverts here, not to "no drawings".
+      documents.forEach { it.commitDrawings() }
     }
     updateUndoRedoButtons()
   }
@@ -392,6 +398,12 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   fun clear() {
     documents.forEach { it.clear() }
+    clearHistoryStacks()
+    render()
+  }
+
+  fun cancelEditSession() {
+    documents.forEach { it.restoreCommittedDrawings() }
     clearHistoryStacks()
     render()
   }

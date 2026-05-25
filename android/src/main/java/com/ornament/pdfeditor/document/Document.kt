@@ -54,6 +54,15 @@ abstract class Document {
 
     abstract fun clear()
 
+    // Snapshots the current drawing list as the committed baseline. Called when
+    // the user accepts the current edit session via Done. Subsequent
+    // restoreCommittedDrawings() calls (Cancel) revert to this snapshot.
+    abstract fun commitDrawings()
+
+    // Restores the drawing list to the most recently committed snapshot. Used
+    // by the Cancel flow so drawings already accepted by a prior Done survive.
+    abstract fun restoreCommittedDrawings()
+
     abstract fun pageBounds(): Map<Int, RectF>
 
     open fun generateThumbnail(maxWidth: Int, maxHeight: Int): Bitmap? = null

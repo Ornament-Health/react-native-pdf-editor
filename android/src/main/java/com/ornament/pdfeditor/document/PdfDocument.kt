@@ -61,6 +61,7 @@ class PdfDocument(
     private val boundsOfPages = mutableMapOf<Int, RectF>()
     private val pagesDrawing = mutableListOf<Pair<Int, BezierCurve>>()
     private val redoStack = ArrayDeque<Pair<Int, BezierCurve>>()
+    private var committedPagesDrawing: List<Pair<Int, BezierCurve>> = emptyList()
     private var cacheHitCount = 0L
     private var cacheMissCount = 0L
     private var renderCount = 0L
@@ -270,6 +271,16 @@ class PdfDocument(
 
     override fun clear() {
         pagesDrawing.clear()
+        redoStack.clear()
+    }
+
+    override fun commitDrawings() {
+        committedPagesDrawing = pagesDrawing.toList()
+    }
+
+    override fun restoreCommittedDrawings() {
+        pagesDrawing.clear()
+        pagesDrawing.addAll(committedPagesDrawing)
         redoStack.clear()
     }
 

@@ -135,7 +135,27 @@ extension ContainerView {
     let newPathComponent = fileNameRaw + "_" + dateString + ".pdf"
     let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
 
-    if document.write(to: fileURL) {
+    // Snapshot via dataRepresentation so we can drop excluded pages without
+    // mutating the on-screen PDFDocument. Drawing annotations are preserved
+    // because PDFKit serializes them into the data blob.
+    guard
+      let snapshotData = document.dataRepresentation(),
+      let workingCopy = PDFDocument(data: snapshotData)
+    else {
+      print("RNPDFEditor: can't snapshot PDF for id \(item.id)")
+      return nil
+    }
+
+    // Remove from the back so surviving indices stay valid.
+    for pageIndex in excluded.sorted(by: >) {
+      guard pageIndex >= 0 && pageIndex < workingCopy.pageCount else { continue }
+      workingCopy.removePage(at: pageIndex)
+    }
+
+    // Entire document excluded — mirror the image-branch contract by skipping.
+    guard workingCopy.pageCount > 0 else { return nil }
+
+    if workingCopy.write(to: fileURL) {
       return fileURL.absoluteString
     }
     print("RNPDFEditor: failed write PDF for id \(item.id)")
