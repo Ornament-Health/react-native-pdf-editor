@@ -37,6 +37,7 @@ class ImageDocument(
     private var bounds: RectF? = null
     private val imageDrawing = mutableListOf<BezierCurve>()
     private val redoStack = ArrayDeque<BezierCurve>()
+    private var committedImageDrawing: List<BezierCurve> = emptyList()
 
     override fun save(outputDirectory: String, options: PDFEditorOptions, excludedPages: Set<Int>): String? {
         if (excludedPages.contains(0)) return null
@@ -250,6 +251,16 @@ class ImageDocument(
 
     override fun clear() {
         imageDrawing.clear()
+        redoStack.clear()
+    }
+
+    override fun commitDrawings() {
+        committedImageDrawing = imageDrawing.toList()
+    }
+
+    override fun restoreCommittedDrawings() {
+        imageDrawing.clear()
+        imageDrawing.addAll(committedImageDrawing)
         redoStack.clear()
     }
 

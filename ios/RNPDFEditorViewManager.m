@@ -12,6 +12,8 @@ RCT_EXTERN_METHOD(undoAction:(nonnull NSNumber *)node)
 
 RCT_EXTERN_METHOD(clearAction:(nonnull NSNumber *)node)
 
+RCT_EXTERN_METHOD(cancelEditAction:(nonnull NSNumber *)node)
+
 RCT_EXTERN_METHOD(saveAction:(nonnull NSNumber *)node)
 
 RCT_EXTERN_METHOD(setEditMode:(nonnull NSNumber *)node isEdit:(nonnull NSNumber *)isEdit)

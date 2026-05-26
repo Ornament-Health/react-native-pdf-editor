@@ -20,6 +20,19 @@ class DocumentPreviewAdapter(
 
     private val items = mutableListOf<DocumentPreviewItem>()
     private var selectedIndex: Int = 0
+    private var attachedRecyclerView: RecyclerView? = null
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        attachedRecyclerView = recyclerView
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView)
+        if (attachedRecyclerView === recyclerView) {
+            attachedRecyclerView = null
+        }
+    }
 
     fun submit(newItems: List<DocumentPreviewItem>, selectedIndex: Int) {
         val oldSize = items.size
@@ -51,8 +64,27 @@ class DocumentPreviewAdapter(
         if (newIndex == selectedIndex) return
         val previousIndex = selectedIndex
         selectedIndex = newIndex
-        if (previousIndex in items.indices) notifyItemChanged(previousIndex)
-        if (newIndex in items.indices) notifyItemChanged(newIndex)
+        // Rebind the two affected view holders directly. notifyItemChanged
+        // alone is unreliable here: under Fabric the host's parent often
+        // considers its size fixed and the rebind layout pass never lands,
+        // so the selection-scale stays stuck on whatever was bound at initial
+        // render. See prepareDocumentPreviews() for the matching workaround
+        // on the insert path.
+        rebindSelectionAt(previousIndex)
+        rebindSelectionAt(newIndex)
+    }
+
+    private fun rebindSelectionAt(position: Int) {
+        if (position !in items.indices) return
+        val rv = attachedRecyclerView
+        val holder = rv?.findViewHolderForAdapterPosition(position) as? ViewHolder
+        if (holder != null) {
+            holder.bind(items[position], position == selectedIndex)
+        } else {
+            // Off-screen or not yet attached — let the standard bind cycle
+            // pick up the new selectedIndex when the view scrolls in.
+            notifyItemChanged(position)
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {

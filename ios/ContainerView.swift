@@ -317,6 +317,18 @@ extension ContainerView {
   @objc func clear() {
     activeDrawer?.clear()
   }
+
+  @objc func cancelEditSession() {
+    for (documentId, drawer) in pdfDrawers {
+      drawer.revertToBaseline()
+      documentHistoryStates[documentId] = PDFDrawer.HistoryState(
+        canUndo: false,
+        canRedo: false,
+        isAtBaseline: true
+      )
+    }
+    updateUndoRedoButtons(canUndo: false, canRedo: false)
+  }
 }
 
 extension ContainerView: FileSwitcherDelegate {

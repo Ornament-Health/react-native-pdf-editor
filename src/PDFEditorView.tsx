@@ -49,6 +49,7 @@ interface RNComponentProps {
 interface ExtRef {
   undoAction(): void;
   clearAction(): void;
+  cancelEditAction(): void;
   saveAction(): void;
   setEditMode(isEdit: boolean): void;
 }
@@ -81,6 +82,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
     useImperativeHandle(extRef, () => ({
       undoAction,
       clearAction,
+      cancelEditAction,
       saveAction,
       setEditMode,
     }));
@@ -120,6 +122,19 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
             ? (UIManager.getViewManagerConfig(ComponentName).Commands
                 .clearAction as number)
             : 'clearAction',
+          []
+        );
+      }
+    };
+
+    const cancelEditAction = () => {
+      if (componentRef && componentRef.current) {
+        UIManager.dispatchViewManagerCommand(
+          findNodeHandle(componentRef.current),
+          Platform.OS === 'ios'
+            ? (UIManager.getViewManagerConfig(ComponentName).Commands
+                .cancelEditAction as number)
+            : 'cancelEditAction',
           []
         );
       }

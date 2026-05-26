@@ -55,6 +55,7 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
             "undoAction" -> root.undo()
             "saveAction" -> root.save()
             "clearAction" -> root.clear()
+            "cancelEditAction" -> root.cancelEditSession()
             "setEditMode" -> {
                 val isEdit = args?.getBoolean(0) ?: false
                 root.setEditMode(isEdit)
