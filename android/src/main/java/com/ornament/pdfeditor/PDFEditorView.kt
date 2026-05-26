@@ -702,7 +702,13 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
         val p = PointF(event.x, event.y)
-        if (!editMode && handleSelectionTap(p)) {
+        // The page-include/exclude icon must be tappable in both view and edit
+        // modes. iOS handles this naturally because each icon is a real UIButton;
+        // on Android the icon is baked into the page bitmap, so
+        // PDFEditorView is the only thing that can intercept the tap. If the
+        // touch is outside every icon hitRect, handleSelectionTap returns
+        // false and we fall through to drawing initialization below.
+        if (handleSelectionTap(p)) {
           parent?.requestDisallowInterceptTouchEvent(true)
           return true
         }
