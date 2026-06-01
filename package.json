@@ -31,7 +31,7 @@
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
-    "prepack": "bob build",
+    "prepare": "bob build",
     "release": "release-it",
     "bootstrap": "cd example && npm install && npm run pods",
     "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build"
@@ -144,7 +144,12 @@
     "targets": [
       "commonjs",
       "module",
-      "typescript"
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
     ]
   }
 }
