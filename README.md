@@ -6,7 +6,7 @@ React Native PDF editor (iOS & Android)
 
 ```sh
 npm install @ornament-health/react-native-pdf-editor
-cd ios && pod install   # для iOS
+cd ios && pod install   # for iOS
 ```
 
 ## Usage
@@ -48,15 +48,40 @@ const handleSavePDF = (urls: string[] | null) => {
 };
 ```
 
-Available ref commands: `undoAction`, `clearAction`, `saveAction`.
+Available ref commands: `setEditMode(isEdit)`, `undoAction`, `clearAction`, `cancelEditAction`, `saveAction`.
 
 ```typescript
 const pdfRef = useRef(null);
 
+const onEnterEdit = () => pdfRef.current?.setEditMode(true);
 const onPressUndo = () => pdfRef.current?.undoAction();
 const onPressClear = () => pdfRef.current?.clearAction();
+const onCancelEdit = () => pdfRef.current?.cancelEditAction();
 const onPressSave = () => pdfRef.current?.saveAction();
 ```
+
+## Edit mode
+
+The view starts in view mode (pan/zoom, no drawing). Drawing, undo and redo are
+only active in edit mode.
+
+- `setEditMode(true)` enables drawing. `setEditMode(false)` leaves edit mode and
+  commits the current strokes as the new baseline.
+- `undoAction()` / `clearAction()` affect strokes made in the current edit
+  session. Redo is available via the in-canvas undo/redo buttons shown in edit
+  mode (colored via `icons.undoRedoColor`).
+- `cancelEditAction()` discards every stroke added since the last commit,
+  restoring the previously accepted drawings.
+
+## Multiple documents & page selection
+
+`files` may contain several paths. A thumbnail switcher at the bottom lets the
+user move between documents. Tap the circular badge on a page to toggle whether
+it is included in the saved output (`icons.unselectedColor` styles the badge).
+
+`onSavePDF` returns one saved path per included document; a document whose pages
+are all excluded is omitted, and if nothing is saved the callback receives
+`null`.
 
 ## Contributing
 
