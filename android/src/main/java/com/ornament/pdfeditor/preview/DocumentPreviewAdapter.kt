@@ -136,6 +136,8 @@ class DocumentPreviewAdapter(
             val scale = if (isSelected) 1f else 0.88f
             binding.previewContent.scaleX = scale
             binding.previewContent.scaleY = scale
+            // Only the current item stays bright; the rest are partially faded.
+            binding.previewContent.alpha = if (isSelected) 1f else 0.8f
         }
 
         fun clear() {
@@ -146,6 +148,7 @@ class DocumentPreviewAdapter(
             binding.frontSheet.translationY = 0f
             binding.previewContent.scaleX = 1f
             binding.previewContent.scaleY = 1f
+            binding.previewContent.alpha = 1f
         }
     }
 }

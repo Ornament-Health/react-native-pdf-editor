@@ -7,7 +7,10 @@ protocol FileSwitcherDelegate: AnyObject {
 enum PreviewPanelMetrics {
     static let panelHeight: CGFloat = 84
     static let contentInset: CGFloat = 8
-    static let buttonWidth: CGFloat = 54
+    // Hug the 50pt sheet so the inter-item gap matches the 8pt design spacing.
+    // The multi-page stack offset (±2pt) overflows into the spacing;
+    // clipsToBounds is false on the buttons so it is not clipped.
+    static let buttonWidth: CGFloat = 50
     static let buttonHeight: CGFloat = 68
     static let buttonSpacing: CGFloat = 8
     static let sheetSize = CGSize(width: 50, height: 64)
@@ -55,6 +58,8 @@ private final class PreviewThumbnailButton: UIButton {
     func setPreviewSelected(_ isSelected: Bool) {
         let scale = isSelected ? 1.0 : Metrics.unselectedScale
         previewContentView.transform = CGAffineTransform(scaleX: scale, y: scale)
+        // Only the current item stays bright; the rest are partially faded.
+        previewContentView.alpha = isSelected ? 1.0 : 0.8
     }
 
     private func setupView() {

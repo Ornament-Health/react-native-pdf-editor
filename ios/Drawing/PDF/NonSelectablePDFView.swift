@@ -14,6 +14,7 @@ class NonSelectablePDFView: PDFView {
   var selectionIconColor: UIColor = .white
   var excludedPages = Set<Int>()
   private var pan: UIPanGestureRecognizer?
+  private var iconTapRecognizer: UITapGestureRecognizer?
   private var pageButtons: [Int: UIButton] = [:]
   private var pageShades: [Int: UIView] = [:]
   private var scrollObservation: NSKeyValueObservation?
@@ -34,6 +35,18 @@ class NonSelectablePDFView: PDFView {
 
     self.pan = pan
     self.addGestureRecognizer(pan)
+
+    // Page include/exclude is toggled on a clean tap (press-out), not on touch
+    // down: starting a scroll on top of an icon must scroll rather than toggle.
+    // The icon views are display-only (see makeIconButton) so the touch reaches
+    // the scroll view; this recognizer only fires on a tap that lands on a
+    // visible icon without turning into a drag.
+    let tap = UITapGestureRecognizer(target: self, action: #selector(handleIconTap(_:)))
+    tap.delegate = self
+    tap.cancelsTouchesInView = false
+    tap.numberOfTapsRequired = 1
+    self.iconTapRecognizer = tap
+    self.addGestureRecognizer(tap)
 
     NotificationCenter.default.addObserver(
       self,
@@ -131,8 +144,22 @@ class NonSelectablePDFView: PDFView {
     }
   }
 
-  @objc private func togglePage(_ sender: UIButton) {
-    onTogglePage?(sender.tag)
+  @objc private func handleIconTap(_ sender: UITapGestureRecognizer) {
+    let location = sender.location(in: self)
+    guard let button = iconButton(at: location) else { return }
+    onTogglePage?(button.tag)
+  }
+
+  private func iconButton(at point: CGPoint) -> UIButton? {
+    // Expand the 28pt icon's hit area so the tap target stays comfortable
+    // without enlarging the visible glyph.
+    let hitInset: CGFloat = -8
+    for button in pageButtons.values where !button.isHidden {
+      if button.frame.insetBy(dx: hitInset, dy: hitInset).contains(point) {
+        return button
+      }
+    }
+    return nil
   }
 
   @objc private func handleViewChanged() {
@@ -221,9 +248,11 @@ class NonSelectablePDFView: PDFView {
   }
 
   private func makeIconButton() -> UIButton {
+    // Display-only: taps are handled by iconTapRecognizer so the underlying
+    // scroll view still receives touches that start on an icon.
     let button = UIButton(type: .custom)
     button.adjustsImageWhenHighlighted = false
-    button.addTarget(self, action: #selector(togglePage(_:)), for: .touchUpInside)
+    button.isUserInteractionEnabled = false
     return button
   }
 
@@ -287,35 +316,35 @@ class NonSelectablePDFView: PDFView {
   private func iconImage(isExcluded: Bool) -> UIImage? {
     let dimension: CGFloat = 28
     let renderer = UIGraphicsImageRenderer(size: CGSize(width: dimension, height: dimension))
-    return renderer.image { context in
+    return renderer.image { _ in
       let rect = CGRect(x: 0, y: 0, width: dimension, height: dimension)
-      let lineWidth: CGFloat = 2
-      let circleRect = rect.insetBy(dx: 2, dy: 2)
-      let bg = UIBezierPath(ovalIn: circleRect)
-      UIColor.black.withAlphaComponent(0.35).setFill()
-      bg.fill()
 
-      let strokeColor = isExcluded ? selectionIconColor : .white
-      strokeColor.setStroke()
-      bg.lineWidth = lineWidth
-      bg.stroke()
+      let ringWidth: CGFloat = 2
+      let circleRect = rect.insetBy(dx: ringWidth / 2, dy: ringWidth / 2)
+      let circle = UIBezierPath(ovalIn: circleRect)
+      circle.lineWidth = ringWidth
 
       if isExcluded {
-        let slash = UIBezierPath()
-        slash.move(to: CGPoint(x: circleRect.minX + 4, y: circleRect.maxY - 4))
-        slash.addLine(to: CGPoint(x: circleRect.maxX - 4, y: circleRect.minY + 4))
-        slash.lineWidth = lineWidth
-        strokeColor.setStroke()
-        slash.stroke()
+        // Excluded page: empty circle (unselected radio-style state).
+        UIColor.white.setFill()
+        circle.fill()
+        UIColor(hexString: "#EFEFEF").setStroke()
+        circle.stroke()
       } else {
+        // Included page: accent-filled circle with a white ring and checkmark.
+        selectionIconColor.setFill()
+        circle.fill()
+        UIColor.white.setStroke()
+        circle.stroke()
+
         let check = UIBezierPath()
-        check.move(to: CGPoint(x: circleRect.minX + 5, y: circleRect.midY))
-        check.addLine(to: CGPoint(x: circleRect.midX - 1, y: circleRect.maxY - 6))
-        check.addLine(to: CGPoint(x: circleRect.maxX - 5, y: circleRect.minY + 6))
-        check.lineWidth = lineWidth
+        check.move(to: CGPoint(x: dimension * 0.287, y: dimension * 0.507))
+        check.addLine(to: CGPoint(x: dimension * 0.447, y: dimension * 0.66))
+        check.addLine(to: CGPoint(x: dimension * 0.713, y: dimension * 0.353))
+        check.lineWidth = dimension * 0.1
         check.lineCapStyle = .round
         check.lineJoinStyle = .round
-        strokeColor.setStroke()
+        UIColor.white.setStroke()
         check.stroke()
       }
     }
