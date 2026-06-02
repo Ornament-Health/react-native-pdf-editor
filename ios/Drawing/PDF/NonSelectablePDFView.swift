@@ -325,10 +325,8 @@ class NonSelectablePDFView: PDFView {
       circle.lineWidth = ringWidth
 
       if isExcluded {
-        // Excluded page: empty circle (unselected radio-style state).
-        UIColor.white.setFill()
-        circle.fill()
-        UIColor(hexString: "#EFEFEF").setStroke()
+        // Excluded page: empty white ring (unselected radio-style state).
+        UIColor.white.setStroke()
         circle.stroke()
       } else {
         // Included page: accent-filled circle with a white ring and checkmark.

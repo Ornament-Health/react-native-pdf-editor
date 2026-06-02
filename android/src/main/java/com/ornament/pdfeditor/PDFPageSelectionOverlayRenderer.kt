@@ -26,17 +26,6 @@ internal class PDFPageSelectionOverlayRenderer(
     style = Paint.Style.FILL
     isAntiAlias = true
   }
-  private val circleFillWhitePaint = Paint().apply {
-    color = Color.WHITE
-    style = Paint.Style.FILL
-    isAntiAlias = true
-  }
-  private val circleRingPaint = Paint().apply {
-    color = Color.parseColor("#EFEFEF")
-    style = Paint.Style.STROKE
-    strokeWidth = iconRingStrokePx
-    isAntiAlias = true
-  }
   private val accentFillPaint = Paint().apply {
     style = Paint.Style.FILL
     isAntiAlias = true
@@ -166,9 +155,8 @@ internal class PDFPageSelectionOverlayRenderer(
     val circleRadius = radius - iconRingStrokePx / 2f
 
     if (isExcluded) {
-      // Excluded page: empty circle (unselected radio-style state).
-      canvas.drawCircle(cx, cy, circleRadius, circleFillWhitePaint)
-      canvas.drawCircle(cx, cy, circleRadius, circleRingPaint)
+      // Excluded page: empty white ring (unselected radio-style state).
+      canvas.drawCircle(cx, cy, circleRadius, ringStrokeWhitePaint)
     } else {
       // Included page: accent-filled circle with a white ring and checkmark.
       canvas.drawCircle(cx, cy, circleRadius, accentFillPaint)
