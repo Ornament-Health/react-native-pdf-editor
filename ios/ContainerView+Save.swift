@@ -9,10 +9,19 @@ extension ContainerView {
       return
     }
 
-    // Snapshot the inputs while still on the main queue so we don't race the
-    // mutable container state during file I/O on the background queue.
-    let documentsSnapshot = documents
+    // Resolve documents on the main queue. documentForSaving reads/writes
+    // RNPDFDocument.renderedDocument, which renderDocument also touches on the
+    // main thread — doing it here keeps that state single-threaded. Only the
+    // file I/O below runs on the background queue.
     let excludedSnapshot = excludedPages
+    let resolved: [(item: RNPDFDocument, document: PDFDocument, excluded: Set<Int>)] =
+      documents.compactMap { item in
+        guard let document = self.documentForSaving(item) else {
+          print("RNPDFEditor: unable to load document with id \(item.id)")
+          return nil
+        }
+        return (item, document, excludedSnapshot[item.id] ?? [])
+      }
 
     let saveQueue = DispatchQueue(
       label: "com.ornament.pdfeditor.save",
@@ -28,18 +37,11 @@ extension ContainerView {
 
       var resultArray = [String]()
 
-      for item in documentsSnapshot {
-        guard let document = self.documentForSaving(item) else {
-          print("RNPDFEditor: unable to load document with id \(item.id)")
-          continue
-        }
-
-        let excluded = excludedSnapshot[item.id] ?? []
-
+      for entry in resolved {
         if let path = self.writeDocument(
-          item: item,
-          document: document,
-          excluded: excluded,
+          item: entry.item,
+          document: entry.document,
+          excluded: entry.excluded,
           dateString: dateString
         ) {
           resultArray.append(path)

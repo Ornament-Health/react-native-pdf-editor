@@ -88,13 +88,11 @@ abstract class Document {
                         }
 
                         ContentResolver.SCHEME_CONTENT -> {
-                            filename = contentResolver.query(uri, null, null, null, null)?.let { cursor ->
-                                cursor.moveToFirst()
-                                cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME).let { nameIndex ->
-                                    val name = cursor.getString(nameIndex)
-                                    cursor.close()
-                                    name.substringBeforeLast(".")
-                                }
+                            filename = contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                                if (!cursor.moveToFirst()) return@use null
+                                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                if (nameIndex < 0) return@use null
+                                cursor.getString(nameIndex)?.substringBeforeLast(".")
                             } ?: ""
                             contentResolver.getType(uri)
                         }

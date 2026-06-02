@@ -33,6 +33,7 @@ import com.ornament.pdfeditor.utils.XmlParserFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.min
@@ -386,7 +387,10 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         val excluded = excludedPages[index] ?: emptySet()
         saveDocument(document, excluded)?.let { outputs.add(it) }
       }
-      onSavePDFAction(outputs)
+      // Mirror the iOS contract (ContainerView+Save.saveImpl): when nothing was
+      // saved (every document excluded or failed) report null, not an empty
+      // list, so the JS onSavePDF handler sees the documented "failed" value.
+      onSavePDFAction(if (outputs.isEmpty()) null else outputs)
     }
   }
 
@@ -903,6 +907,11 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   fun dispose() {
     renderingJob?.cancel()
     renderingJob = null
+    // Cancel the whole scope so an in-flight save() (launched on Dispatchers.IO)
+    // cannot fire onSavePDFAction into a destroyed view, and the scope's Job is
+    // not leaked. dispose() runs from onDropViewInstance — true teardown — so
+    // there are no further render()/save() calls to serve.
+    coroutineScope.cancel()
     binding.viewPort.setImageBitmap(null)
     recycleLayerBitmaps()
     recycleDocumentPreviews()
