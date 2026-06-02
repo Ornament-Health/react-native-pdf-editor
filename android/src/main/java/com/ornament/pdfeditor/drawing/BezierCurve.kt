@@ -1,13 +1,11 @@
 package com.ornament.pdfeditor.drawing
 
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
-import android.util.Size
 import android.util.SizeF
 import androidx.annotation.ColorInt
 import com.itextpdf.kernel.colors.DeviceRgb
@@ -18,7 +16,7 @@ import com.ornament.pdfeditor.extenstions.minus
 import com.ornament.pdfeditor.extenstions.plus
 import com.ornament.pdfeditor.extenstions.times
 
-class BezierCurve(private val width: Float, @ColorInt private val color: Int, ) {
+class BezierCurve(private val baseWidth: Float, @ColorInt private val color: Int) {
     private val points = mutableListOf<PointF>()
 
     var isClosed: Boolean = false
@@ -30,7 +28,7 @@ class BezierCurve(private val width: Float, @ColorInt private val color: Int, ) 
 
     fun drawOnCanvas(canvas: Canvas, paint: Paint, drawClip: RectF, actualScale: Float, alpha: Int = 255) {
         if (points.isEmpty()) return
-        paint.strokeWidth = width * actualScale
+        paint.strokeWidth = baseWidth * actualScale
         paint.alpha = alpha
         val offset = PointF(drawClip.left, drawClip.top)
         val path = Path()
@@ -51,19 +49,12 @@ class BezierCurve(private val width: Float, @ColorInt private val color: Int, ) 
             )
         }
 
-        //drawing path
-        val pageSize = Size(
-            drawClip.width().toInt(),
-            drawClip.height().toInt()
-        )
-        val bitmap = Bitmap.createBitmap(pageSize.width, pageSize.height, Bitmap.Config.ARGB_8888)
-        Canvas(bitmap).drawPath(path, paint)
-        canvas.drawBitmap(bitmap, 0f, 0f, paint)
+        canvas.drawPath(path, paint)
     }
 
-    fun drawOnPdfCanvas(pdfCanvas: PdfCanvas, pageSize: SizeF, scale: Float) {
+    fun drawOnPdfCanvas(pdfCanvas: PdfCanvas, pageSize: SizeF, scale: Float, rotation: Int = 0, mediaSize: SizeF = pageSize) {
         pdfCanvas.apply {
-            setLineWidth(width * scale)
+            setLineWidth(baseWidth * scale)
             setLineCapStyle(PdfCanvasConstants.LineCapStyle.ROUND)
             val androidColor = Color.valueOf(color)
             setStrokeColor(DeviceRgb(
@@ -72,18 +63,25 @@ class BezierCurve(private val width: Float, @ColorInt private val color: Int, ) 
                 androidColor.blue(),
             ))
         }
-        val points = getAllPoints().map { it * scale }
-        pdfCanvas.moveTo(points.first().x.toDouble(), pageSize.height - points.first().y.toDouble())
-        if (points.size < 3) {
-            pdfCanvas.lineTo(points.last().x.toDouble(), pageSize.height -points.last().y.toDouble())
-        } else for (index in 1 until points.size step 3) {
+        // Points are stored in rendered display coordinates (y-down, rotation already applied by PdfRenderer).
+        // Convert to PDF user space (y-up, unrotated MediaBox) based on the page rotation entry.
+        val W = mediaSize.width
+        val H = mediaSize.height
+        val rawPoints = getAllPoints().map { it * scale }
+        val pdfPoints = when (rotation) {
+            90  -> rawPoints.map { PointF(it.y,     it.x)     }
+            180 -> rawPoints.map { PointF(W - it.x, it.y)     }
+            270 -> rawPoints.map { PointF(W - it.y, H - it.x) }
+            else -> rawPoints.map { PointF(it.x,    H - it.y) }
+        }
+        pdfCanvas.moveTo(pdfPoints.first().x.toDouble(), pdfPoints.first().y.toDouble())
+        if (pdfPoints.size < 3) {
+            pdfCanvas.lineTo(pdfPoints.last().x.toDouble(), pdfPoints.last().y.toDouble())
+        } else for (index in 1 until pdfPoints.size step 3) {
             pdfCanvas.curveTo(
-                points[index].x.toDouble(),
-                pageSize.height - points[index].y.toDouble(),
-                points[index + 1].x.toDouble(),
-                pageSize.height - points[index + 1].y.toDouble(),
-                points[index + 2].x.toDouble(),
-                pageSize.height - points[index + 2].y.toDouble()
+                pdfPoints[index].x.toDouble(),     pdfPoints[index].y.toDouble(),
+                pdfPoints[index + 1].x.toDouble(), pdfPoints[index + 1].y.toDouble(),
+                pdfPoints[index + 2].x.toDouble(), pdfPoints[index + 2].y.toDouble()
             )
         }
         pdfCanvas.stroke()

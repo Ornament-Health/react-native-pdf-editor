@@ -1,31 +1,46 @@
 package com.ornament.pdfeditor.document
 
+import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.RectF
+import android.net.Uri
+import android.os.ParcelFileDescriptor
+import android.system.Os
+import android.system.OsConstants
 import android.util.Size
 import android.util.SizeF
+import androidx.core.net.toFile
+import androidx.exifinterface.media.ExifInterface
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.drawing.BezierCurve
-import com.radzivon.bartoshyk.avif.coder.HeifCoder
 import java.io.ByteArrayOutputStream
-import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import kotlin.collections.ArrayDeque
 import kotlin.math.max
 import kotlin.math.min
 
-class ImageDocument(filePath: String) : Document() {
+class ImageDocument(
+    override val filename: String,
+    override val parcelFileDescriptor: ParcelFileDescriptor,
+    private val sourceUri: Uri
+) : Document() {
 
     private lateinit var imageBitmap: Bitmap
     override lateinit var size: SizeF
+    override val pageCount: Int = 1
     private var bounds: RectF? = null
     private val imageDrawing = mutableListOf<BezierCurve>()
-    private val fileName: String
+    private val redoStack = ArrayDeque<BezierCurve>()
+    private var committedImageDrawing: List<BezierCurve> = emptyList()
 
-    override fun save(outputDirectory: String, options: PDFEditorOptions): String {
+    override fun save(outputDirectory: String, options: PDFEditorOptions, excludedPages: Set<Int>): String? {
+        if (excludedPages.contains(0)) return null
         val pagePaint = Paint().apply {
             color = options.lineColor
             strokeWidth = options.lineWidth.toFloat()
@@ -55,34 +70,109 @@ class ImageDocument(filePath: String) : Document() {
         val copy = imageBitmap.copy(Bitmap.Config.ARGB_8888, true)
         Canvas(copy).drawBitmap(drawingBitmap, 0f, 0f, Paint())
         val outputStream = ByteArrayOutputStream()
-        copy.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-        val outputPath = "$outputDirectory/$fileName-edited.png"
+        copy.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
+        val outputPath = "$outputDirectory/$filename-edited.jpg"
         FileOutputStream(outputPath).also { outputFileStream ->
             outputStream.writeTo(outputFileStream)
             outputFileStream.close()
             outputStream.close()
         }
-        return outputPath
+        return "file://$outputPath"
     }
 
     init {
-        decodeImage(filePath)?.let { imageBitmap = it }
+        // Read EXIF orientation BEFORE decoding. BitmapFactory.decodeFileDescriptor
+        // advances the FD to EOF and ParcelFileDescriptor.dup shares the offset,
+        // so reading EXIF afterwards returns ORIENTATION_UNDEFINED and gallery
+        // photos render rotated 90° left.
+        val orientation = readExifOrientation()
+        decodeImage()?.let { imageBitmap = applyExifOrientation(it, orientation) }
         size = with(imageBitmap) { SizeF(width.toFloat(), height.toFloat()) }
-        fileName = File(filePath).nameWithoutExtension
     }
 
-    private fun decodeImage(path: String): Bitmap? = if (path.lowercase().endsWith(".heic"))
-        HeifCoder().decode(File(path).readBytes())
-    else
-        BitmapFactory.decodeFile(path)
+    private fun decodeImage(): Bitmap? {
+        rewindFileDescriptor(parcelFileDescriptor.fileDescriptor)
+        return BitmapFactory.decodeFileDescriptor(parcelFileDescriptor.fileDescriptor)
+    }
 
+    private fun applyExifOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
+        return when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> rotateBitmap(bitmap, 90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> rotateBitmap(bitmap, 180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> rotateBitmap(bitmap, 270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> rotateBitmap(bitmap, flipX = true)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> rotateBitmap(bitmap, flipY = true)
+            ExifInterface.ORIENTATION_TRANSPOSE -> rotateBitmap(bitmap, 90f, flipX = true)
+            ExifInterface.ORIENTATION_TRANSVERSE -> rotateBitmap(bitmap, 270f, flipX = true)
+            else -> bitmap
+        }
+    }
+
+    private fun readExifOrientation(): Int {
+        // Prefer reading EXIF directly from the file path — the most reliable
+        // method, immune to file-descriptor offset issues that affect
+        // ExifInterface(FileDescriptor) after BitmapFactory has consumed the FD.
+        if (sourceUri.scheme == ContentResolver.SCHEME_FILE) {
+            try {
+                return ExifInterface(sourceUri.toFile().absolutePath).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_UNDEFINED
+                )
+            } catch (_: Exception) {
+                // Fall through to the FD-based reader.
+            }
+        }
+        return try {
+            ParcelFileDescriptor.dup(parcelFileDescriptor.fileDescriptor).use { descriptor ->
+                rewindFileDescriptor(descriptor.fileDescriptor)
+                FileInputStream(descriptor.fileDescriptor).use { stream ->
+                    ExifInterface(stream).getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_UNDEFINED
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            ExifInterface.ORIENTATION_UNDEFINED
+        }
+    }
+
+    private fun rewindFileDescriptor(fd: java.io.FileDescriptor) {
+        try {
+            Os.lseek(fd, 0, OsConstants.SEEK_SET)
+        } catch (_: Exception) {
+            // ignore — non-seekable FDs will still work with the JPEG decoder/ExifInterface
+        }
+    }
+
+    private fun rotateBitmap(
+        bitmap: Bitmap,
+        rotationDegrees: Float = 0f,
+        flipX: Boolean = false,
+        flipY: Boolean = false
+    ): Bitmap {
+        if (rotationDegrees == 0f && !flipX && !flipY) return bitmap
+        val matrix = Matrix().apply {
+            if (rotationDegrees != 0f) postRotate(rotationDegrees)
+            if (flipX || flipY) {
+                postScale(if (flipX) -1f else 1f, if (flipY) -1f else 1f)
+            }
+        }
+        val transformed = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        if (transformed !== bitmap && !bitmap.isRecycled) {
+            bitmap.recycle()
+        }
+        return transformed
+    }
 
     override fun render(
         canvas: Canvas,
         scale: Float,
         offset: PointF,
         viewPortSize: Size,
-        refresh: Boolean
+        refresh: Boolean,
+        interactive: Boolean,
+        zoomingOut: Boolean
     ) {
         val imageRect = findPdfPageRect(scale * minScale, offset)
         canvas.drawBitmap(imageBitmap, null, imageRect, Paint())
@@ -105,6 +195,7 @@ class ImageDocument(filePath: String) : Document() {
     override fun addDrawing(point: PointF, drawing: BezierCurve) {
         if (contains(point)) {
             imageDrawing.add(drawing)
+            redoStack.clear()
         }
     }
 
@@ -129,44 +220,73 @@ class ImageDocument(filePath: String) : Document() {
             strokeCap = Paint.Cap.ROUND
             style = Paint.Style.STROKE
         }
-        val drawingBitmap = Bitmap.createBitmap(
-            drawClip.width().toInt(),
-            drawClip.height().toInt(),
-            Bitmap.Config.ARGB_8888
-        )
-        Canvas(drawingBitmap).let { canvas ->
-            imageDrawing.forEach {
-                it.drawOnCanvas(
-                    canvas,
-                    pagePaint,
-                    RectF(
-                        imageRect.left - drawClip.left,
-                        imageRect.top - drawClip.top,
-                        drawClip.width(),
-                        drawClip.height()
-                    ),
-                    scale,
-                    if (it.isClosed) 255 else 128
-                )
-            }
+        val bitmapCanvas = Canvas(bitmap)
+        val saveCount = bitmapCanvas.save()
+        bitmapCanvas.clipRect(drawClip)
+        imageDrawing.forEach {
+            it.drawOnCanvas(
+                bitmapCanvas,
+                pagePaint,
+                imageRect,
+                scale,
+                if (it.isClosed) 255 else 128
+            )
         }
-        Canvas(bitmap).drawBitmap(drawingBitmap, null, drawClip, Paint())
+        bitmapCanvas.restoreToCount(saveCount)
     }
 
     override fun reset() {
         bounds = null
         imageDrawing.clear()
+        redoStack.clear()
     }
 
     override fun undo() {
-        imageDrawing.removeLastOrNull()
+        imageDrawing.removeLastOrNull()?.let { redoStack.addLast(it) }
+    }
+
+    override fun redo() {
+        redoStack.removeLastOrNull()?.let { imageDrawing.add(it) }
     }
 
     override fun clear() {
         imageDrawing.clear()
+        redoStack.clear()
+    }
+
+    override fun commitDrawings() {
+        committedImageDrawing = imageDrawing.toList()
+    }
+
+    override fun restoreCommittedDrawings() {
+        imageDrawing.clear()
+        imageDrawing.addAll(committedImageDrawing)
+        redoStack.clear()
+    }
+
+    override fun pageBounds(): Map<Int, RectF> = bounds?.let { mapOf(0 to it) } ?: emptyMap()
+
+    override fun generateThumbnail(maxWidth: Int, maxHeight: Int): Bitmap? {
+        if (!::imageBitmap.isInitialized || maxWidth <= 0 || maxHeight <= 0) return null
+        val aspectRatio = imageBitmap.width.toFloat() / imageBitmap.height.toFloat()
+        var targetWidth = maxWidth
+        var targetHeight = (targetWidth / aspectRatio).toInt()
+        if (targetHeight > maxHeight) {
+            targetHeight = maxHeight
+            targetWidth = (targetHeight * aspectRatio).toInt()
+        }
+        if (targetWidth <= 0 || targetHeight <= 0) return null
+        return Bitmap.createScaledBitmap(imageBitmap, targetWidth, targetHeight, true)
     }
 
     override fun addPointToDrawing(point: PointF, offset: PointF, scale: Float) {
         imageDrawing.lastOrNull()?.takeIf { !it.isClosed }?.addPoint(point, offset, scale)
+    }
+
+    override fun dispose() {
+        if (::imageBitmap.isInitialized && !imageBitmap.isRecycled) {
+            imageBitmap.recycle()
+        }
+        super.dispose()
     }
 }

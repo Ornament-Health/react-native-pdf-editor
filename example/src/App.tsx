@@ -1,36 +1,44 @@
-import React, { ComponentRef, useRef } from 'react';
+import React, { ComponentRef, useRef, useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  SafeAreaView,
+} from 'react-native';
+import DocumentPicker, {
+  types as DocTypes,
+} from 'react-native-document-picker';
 import RNFS from 'react-native-fs';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { PDFEditorView } from '@ornament-health/react-native-pdf-editor';
+import {
+  PDFEditorView,
+  PDFEditorOptions,
+} from '@ornament-health/react-native-pdf-editor';
 
 type PDFEVRef = ComponentRef<typeof PDFEditorView>;
 
 export default function App() {
-  const source1 = RNFS.ExternalDirectoryPath + '/img1.jpg';
-  const source2 = RNFS.ExternalDirectoryPath + '/img2.jpeg';
-  const source3 = RNFS.ExternalDirectoryPath + '/book.pdf';
-
   const pdfRef = useRef<PDFEVRef>(null);
 
-  enum CanvasType {
-    Image = 'image',
-    PDF = 'pdf',
-  }
-
-  const options = {
-    filePath: [source2, source1, source3],
-    canvasType: CanvasType.Image,
-    isToolBarHidden: false,
-    viewBackgroundColor: '#40a35f',
-    lineColor: '#4287f5',
-    lineWidth: 40,
-  };
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   const handleSavePDF = (e: string[] | null) => {
     if (e === null) {
       console.log('got null value for url:', e);
     } else {
       console.log('got url:', e);
+      e.forEach(async (fileUrl) => {
+        try {
+          const filePath = fileUrl.replace('file://', '');
+          const stat = await RNFS.stat(filePath);
+          const sizeInMB = (stat.size / (1024 * 1024)).toFixed(2);
+          const fileName = filePath.split('/').pop() || 'unknown';
+          console.log(`📄 ${fileName}: ${sizeInMB} MB (${stat.size} bytes)`);
+        } catch (error) {
+          console.warn(`Failed to get file size for ${fileUrl}:`, error);
+        }
+      });
     }
   };
 
@@ -46,59 +54,125 @@ export default function App() {
     pdfRef.current?.saveAction();
   };
 
+  const onPressToggleMode = () => {
+    const newMode = !isEditMode;
+    setIsEditMode(newMode);
+    pdfRef.current?.setEditMode(newMode);
+  };
+
+  const pickFiles = async () => {
+    try {
+      const results = await DocumentPicker.pick({
+        allowMultiSelection: true,
+        type: [DocTypes.images, DocTypes.pdf],
+        mode: 'open',
+      });
+
+      const resolvedPaths: string[] = [];
+
+      for (const res of results) {
+        resolvedPaths.push(res.uri);
+      }
+
+      if (resolvedPaths.length > 0) {
+        setSelectedFiles(resolvedPaths);
+      }
+    } catch (err: any) {
+      if (DocumentPicker.isCancel(err)) {
+        console.log('User cancelled file picker');
+      } else {
+        console.warn('DocumentPicker error', err);
+      }
+    }
+  };
+
+  const options: PDFEditorOptions = {
+    files: selectedFiles,
+    drawLine: {
+      width: 30,
+      color: '#ea1d54',
+    },
+    icons: {
+      unselectedColor: '#ea1d54',
+      undoRedoColor: '#f5c527',
+    },
+  };
+
   return (
-    <View style={styles.container}>
-      <View style={styles.topView}>
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.button} onPress={onPressUndo}>
-            <Text style={styles.buttonText}>Undo</Text>
+    <SafeAreaView style={styles.container}>
+      {selectedFiles.length > 0 ? (
+        <>
+          <PDFEditorView
+            ref={pdfRef}
+            style={styles.editor}
+            options={options}
+            onSavePDF={handleSavePDF}
+          />
+          <View style={styles.controlPanel}>
+            {isEditMode && (
+              <>
+                <TouchableOpacity
+                  style={[styles.button, styles.controlButton]}
+                  onPress={onPressUndo}
+                >
+                  <Text style={styles.buttonText}>Undo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.button, styles.controlButton]}
+                  onPress={onPressClear}
+                >
+                  <Text style={styles.buttonText}>Clear</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            <TouchableOpacity
+              style={[styles.button, styles.controlButton]}
+              onPress={onPressSave}
+            >
+              <Text style={styles.buttonText}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.controlButton,
+                isEditMode
+                  ? styles.modeButtonActive
+                  : styles.modeButtonInactive,
+              ]}
+              onPress={onPressToggleMode}
+            >
+              <Text style={styles.buttonText}>
+                {isEditMode ? 'View Mode' : 'Edit Mode'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : (
+        <View style={styles.centerWrapper}>
+          <TouchableOpacity
+            style={[styles.button, styles.pickButton]}
+            onPress={pickFiles}
+          >
+            <Text style={styles.buttonText}>Pick files</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.button} onPress={onPressClear}>
-            <Text style={styles.buttonText}>Clear</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.button} onPress={onPressSave}>
-            <Text style={styles.buttonText}>Save</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-      <PDFEditorView
-        ref={pdfRef}
-        style={styles.box}
-        options={options}
-        onSavePDF={handleSavePDF}
-      />
-    </View>
+      )}
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 40,
+    backgroundColor: '#313131',
   },
-  topView: {
-    height: '10%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  box: {
-    width: '100%',
-    height: '90%',
-  },
-  buttonContainer: {
+  centerWrapper: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   button: {
-    marginRight: 5,
-    marginLeft: 5,
-    backgroundColor: '#1E6738',
+    backgroundColor: '#ea1d54',
     height: 40,
     borderRadius: 6,
     justifyContent: 'center',
@@ -108,5 +182,27 @@ const styles = StyleSheet.create({
     color: '#fff',
     textAlign: 'center',
     fontSize: 17,
+  },
+  pickButton: {
+    width: '60%',
+  },
+  editor: {
+    flex: 1,
+  },
+  controlPanel: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 10,
+    gap: 8,
+  },
+  controlButton: {
+    flex: 1,
+  },
+  modeButtonActive: {
+    backgroundColor: '#2ecc71',
+  },
+  modeButtonInactive: {
+    backgroundColor: '#95a5a6',
   },
 });

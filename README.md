@@ -1,63 +1,61 @@
 # react-native-pdf-editor
 
-React Native PDF editor (iOS)
+React Native PDF editor (iOS & Android)
 
 ## Installation
 
 ```sh
 npm install @ornament-health/react-native-pdf-editor
-cd ios
-pod install
+cd ios && pod install   # для iOS
 ```
 
 ## Usage
-In order to start using RNPDFEditorView, you should create configuration for it with local link to document and some styling parameters. You can handle visibility of native toolbar, backgrounf color, line color and width from React Native side.  
+
+Pass an array of file paths and brush settings (nested under `drawLine`), plus icon colors (nested under `icons`). Set background color via `style`; native views are transparent.
 
 ```typescript
-import { RNPDFEditorView } from "@ornament-health/react-native-pdf-editor";
-
-// ...
+import { PDFEditorView } from '@ornament-health/react-native-pdf-editor';
 
 const options = {
-  fileName: source,
-  isToolBarHidden: false,
-  viewBackgroundColor: '#40a35f',
-  lineColor: '#4287f5',
-  lineWidth: 40,
-  startWithEdit: true,
-};
-
-<PDFEditorView 
-  ref={pdfRef}
-  style={styles.pdfView}
-  options={options}
-  onSavePDF={handleSavePDF}
-/> 
-```
-Saving option can return 'null' if there was errors at native side, otherwise it will return string contains local path to saved document. Note, that after every saving action document stores at apps Document Directory, so removing unnecessary local copies should be provided at React Native side.
-  
-```typescript
-const handleSavePDF = (e: string | null) => {
-  if (e === null) {
-    console.log('got null value for url:', e);
-  } else {
-    console.log('got url:', e);
-  }        
-};
-```
-
-Native methods Scroll/Draw/Undo/Save can be accessed from React Native side by using ref.
-
-```typescript
-const pdfRef = useRef(null);
-
-const onPressScroll = () => {  
-  pdfRef.current?.scrollAction();
+  files: ['/path/to/file1.pdf', '/path/to/file2.png'], // required array of paths
+  drawLine: {
+    color: '#4287f5', // optional, defaults to '#555555'
+    width: 40, // optional, defaults to 10
+  },
+  icons: {
+    unselectedColor: '#FFFFFF', // optional, defaults to '#FFFFFF'
+    undoRedoColor: '#FFFFFF', // optional, defaults to '#FFFFFF'
+  },
 };
 
 <PDFEditorView
   ref={pdfRef}
-/>
+  style={styles.pdfView}
+  options={options}
+  onSavePDF={handleSavePDF}
+/>;
+```
+
+`onSavePDF` receives a list of saved file paths or `null` if native saving failed. Saved files stay in Documents/External Files; clean up unused copies on the RN side.
+
+```typescript
+const handleSavePDF = (urls: string[] | null) => {
+  if (urls === null) {
+    console.log('save failed');
+  } else {
+    console.log('saved urls:', urls);
+  }
+};
+```
+
+Available ref commands: `undoAction`, `clearAction`, `saveAction`.
+
+```typescript
+const pdfRef = useRef(null);
+
+const onPressUndo = () => pdfRef.current?.undoAction();
+const onPressClear = () => pdfRef.current?.clearAction();
+const onPressSave = () => pdfRef.current?.saveAction();
 ```
 
 ## Contributing

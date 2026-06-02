@@ -1,8 +1,3 @@
-//
-//  UIColor+hex.swift
-//  react-native-pdf-editor
-//
-
 import Foundation
 import UIKit
 

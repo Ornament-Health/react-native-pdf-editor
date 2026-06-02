@@ -38,7 +38,7 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
     }
 
     override fun getExportedCustomBubblingEventTypeConstants(): MutableMap<String, Any>? {
-        return MapBuilder.builder<String, Any>()
+        return HashMap(MapBuilder.builder<String, Any>()
             .put(
                 "savePDF",
                 MapBuilder.of(
@@ -46,7 +46,7 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
                     MapBuilder.of("bubbled", "onSavePDF")
                 )
             )
-            .build()
+            .build())
     }
 
     override fun receiveCommand(root: PDFEditorView, commandId: String?, args: ReadableArray?) {
@@ -55,6 +55,20 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
             "undoAction" -> root.undo()
             "saveAction" -> root.save()
             "clearAction" -> root.clear()
+            "cancelEditAction" -> root.cancelEditSession()
+            "setEditMode" -> {
+                val isEdit = args?.getBoolean(0) ?: false
+                root.setEditMode(isEdit)
+            }
         }
+    }
+
+    override fun onDropViewInstance(view: PDFEditorView) {
+        // Called by React Native (Paper and Fabric) when the View is being
+        // permanently removed. Routine View detach (e.g. another screen covering
+        // the editor) goes through onDetachedFromWindow, which intentionally
+        // does NOT clean up — see PDFEditorView.dispose for the full rationale.
+        view.dispose()
+        super.onDropViewInstance(view)
     }
 }

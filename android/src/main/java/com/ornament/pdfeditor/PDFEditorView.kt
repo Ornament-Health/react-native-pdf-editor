@@ -3,6 +3,7 @@ package com.ornament.pdfeditor
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.drawable.ColorDrawable
 import android.os.Environment
@@ -10,9 +11,15 @@ import android.util.Log
 import android.util.Size
 import android.view.LayoutInflater
 import android.view.MotionEvent
-import android.view.ViewTreeObserver.OnGlobalLayoutListener
+import android.view.ViewConfiguration
+import androidx.appcompat.widget.AppCompatImageButton
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.itextpdf.kernel.utils.XmlProcessorCreator
+import com.ornament.pdfeditor.R
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.databinding.ViewPdfEditorBinding
 import com.ornament.pdfeditor.document.Document
@@ -20,6 +27,8 @@ import com.ornament.pdfeditor.drawing.BezierCurve
 import com.ornament.pdfeditor.extenstions.minus
 import com.ornament.pdfeditor.extenstions.plus
 import com.ornament.pdfeditor.extenstions.times
+import com.ornament.pdfeditor.preview.DocumentPreviewAdapter
+import com.ornament.pdfeditor.preview.DocumentPreviewItem
 import com.ornament.pdfeditor.utils.XmlParserFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,296 +40,1102 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 class PDFEditorView(context: Context) : ConstraintLayout(context) {
+  private val previewPanelBackgroundColor = Color.argb(153, 0, 0, 0)
+  private val editPanelBackgroundColor = Color.BLACK
+  private var editMode: Boolean = false
+  private var bottomOverlayInsetPx: Int = 0
+  private var systemBottomInsetPx: Int = 0
 
-    companion object {
-        private const val ACTION_TAG = "ACTION"
-        private const val MARGIN = 20f
-        private const val MAX_SCALE = 5f
+  private val outputDirectory =
+    context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)?.absolutePath
+
+  private val binding: ViewPdfEditorBinding
+  private lateinit var viewPort: Size
+
+  private val previewAdapter = DocumentPreviewAdapter(::onPreviewSelected)
+  private val previewWidthPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_thumbnail_width).coerceAtLeast(1)
+  private val previewHeightPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_thumbnail_height).coerceAtLeast(1)
+  private val previewItemWidthPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_item_width)
+  private val previewItemSpacingPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_item_spacing)
+  private val previewListSidePaddingPx =
+    resources.getDimensionPixelSize(R.dimen.pdfeditor_preview_panel_horizontal_padding)
+  private val documentPreviews = mutableListOf<DocumentPreviewItem>()
+  private var activeDocumentIndex = 0
+
+  private val excludedPages = mutableMapOf<Int, Set<Int>>()
+  private var lastPageBounds: Map<Int, android.graphics.RectF> = emptyMap()
+  private var zoomReferencePageBounds: Map<Int, android.graphics.RectF> = emptyMap()
+
+  private lateinit var options: PDFEditorOptions
+  private var pendingOptions: PDFEditorOptions? = null
+
+  private var selectionIconColor: Int = Color.WHITE
+  private var undoRedoIconColor: Int = Color.WHITE
+
+  private val operationList = mutableListOf<Int>()
+  private val redoOperationList = mutableListOf<Int>()
+
+  private var movementDifference = PointF(0f, 0f)
+  private var currentFilePaths = listOf<String>()
+
+  private val documents = mutableListOf<Document>()
+
+  private val coroutineScope = CoroutineScope(Dispatchers.Main)
+  private var renderingJob: Job? = null
+  private var renderQueued = false
+  private var pendingRefresh = false
+  private var scale: Float = 1f
+    set(value) {
+      previousScale = field
+      field = value.coerceAtLeast(1f).coerceAtMost(PDFEditorConstants.MAX_SCALE)
+    }
+  private var previousScale = scale
+  private var baseLayerBitmap: Bitmap? = null
+  private var composedLayerBitmap: Bitmap? = null
+  private var zoomReferenceBitmap: Bitmap? = null
+  private var zoomReferenceScale: Float = 1f
+  private var zoomReferenceOffset: PointF = PointF(0f, 0f)
+  private var lastInteractiveHighQualityRenderNs: Long = 0L
+  private var lastInteractiveHighQualityScale: Float = 1f
+  private val interactiveHighQualityIntervalNs = 80_000_000L
+  private val interactiveHighQualityZoomOutIntervalNs = 28_000_000L
+  private val zoomOutFullRenderThreshold = 0.08f
+  private val previewCoverageThreshold = 0.985f
+  private var previewFrames = 0
+  private var previewFallbackFrames = 0
+  private var previewCoverageAccum = 0f
+
+  private val pageSelectionRenderer = PDFPageSelectionOverlayRenderer(
+    resources = resources,
+    pageIconSizeDp = PDFEditorConstants.PAGE_ICON_SIZE_DP,
+    pageIconInsetDp = PDFEditorConstants.PAGE_ICON_INSET_DP,
+    pageIconEdgePaddingDp = PDFEditorConstants.PAGE_ICON_EDGE_PADDING_DP,
+  )
+
+  init {
+    XmlProcessorCreator.setXmlParserFactory(XmlParserFactory())
+    binding = ViewPdfEditorBinding.inflate(LayoutInflater.from(context), this, true)
+    binding.previewList.apply {
+      layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
+      adapter = previewAdapter
+      // Disable item animator: with Fabric, item-add animations can pin the
+      // layout pass into a "pending" state that never completes, leaving the
+      // newly-inserted second item un-bound on screen.
+      itemAnimator = null
+    }
+    binding.viewPort.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+      updateViewPortSize()
     }
 
-    private val outputDirectory =
-        context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)?.absolutePath
-
-    private val binding: ViewPdfEditorBinding
-    private lateinit var viewPort: Size
-
-    private lateinit var options: PDFEditorOptions
-
-    private val operationList = mutableListOf<Int>()
-
-    private var movementDifference = PointF(0f, 0f)
-    private var currentFilePaths = listOf<String>()
-
-    private lateinit var layerBitmap: Bitmap
-
-    private val documents = mutableListOf<Document>()
-    private var documentsHeight = 0f
-
-    private val coroutineScope = CoroutineScope(Dispatchers.Main)
-    private var renderingJob: Job? = null
-    private var scale: Float = 1f
-        set(value) {
-            previousScale = field
-            field = value.coerceAtLeast(1f).coerceAtMost(MAX_SCALE)
-        }
-    private var previousScale = scale
-
-    private var optionsHandled = false
-    init {
-        XmlProcessorCreator.setXmlParserFactory(XmlParserFactory())
-        binding = ViewPdfEditorBinding.inflate(LayoutInflater.from(context), this, true)
-
-        val listener = object : OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                viewTreeObserver.removeOnGlobalLayoutListener(this)
-                viewPort = with(binding.root) { Size(width, height) }
-                if (!optionsHandled) setOptions(options)
-            }
-        }
-        viewTreeObserver.addOnGlobalLayoutListener(listener)
+    binding.btnUndo.setOnClickListener {
+      undo()
+    }
+    binding.btnRedo.setOnClickListener {
+      redo()
     }
 
-    private fun reset() {
-        scale = 1f
-        movementDifference = PointF(0f, 0f)
-        documents.forEach { it.reset() }
+    applyUndoRedoColor()
+    updateBottomControlsVisibility()
+    updateUndoRedoButtons()
+    installInsetsAndOverlayObservers()
+  }
+
+  fun setEditMode(isEdit: Boolean) {
+    val enteringEditMode = !editMode && isEdit
+    val leavingEditMode = editMode && !isEdit
+    editMode = isEdit
+    updateBottomControlsVisibility()
+    if (enteringEditMode) {
+      clearHistoryStacks()
     }
-
-    fun setOptions(options: PDFEditorOptions) {
-        this.options = options
-        if (!this::viewPort.isInitialized) {
-            optionsHandled = false
-            return
-        }
-        optionsHandled = true
-        background = ColorDrawable(options.backgroundColor)
-        options.filePaths?.let {
-            load(it)
-        }
-        reset()
-        render()
+    if (leavingEditMode) {
+      // Promote the current drawing set into the per-document committed
+      // snapshot so a later Cancel reverts here, not to "no drawings".
+      documents.forEach { it.commitDrawings() }
     }
+    updateUndoRedoButtons()
+  }
 
-    private var onSavePDFAction: (paths: List<String>?) -> Unit = {}
-
-    fun onSavePDF(action: (paths: List<String>?) -> Unit) {
-        onSavePDFAction = action
-    }
-
-    fun undo() {
-        operationList.removeLastOrNull()?.let {
-            documents[it].undo()
-            render()
-            Log.d(ACTION_TAG, "UNDO")
-        }
-    }
-
-    fun save() {
-        coroutineScope.launch(Dispatchers.IO) {
-            var outputs: MutableList<String>? = mutableListOf()
-            documents.forEach {
-                outputs?.add(
-                    saveDocument(it) ?: run {
-                        outputs = null
-                        return@forEach
-                    }
-                )
-            }
-            onSavePDFAction(outputs)
-        }
-    }
-
-    private fun saveDocument(document: Document): String? {
-        return outputDirectory?.let {
-            document.save(it, options)
-        }
-    }
-
-    fun clear() {
-        operationList.clear()
-        documents.forEach { it.clear() }
-        render()
-        Log.d(ACTION_TAG, "CLEAR")
-    }
-
-    private fun load(filePaths: List<String>) {
-        currentFilePaths = filePaths
-        documents.clear()
-        val firstDocument = Document.create(filePaths.first()).also { documents.add(it) }
-        val documentsWidth = firstDocument.size.width
-        documentsHeight = firstDocument.size.height
-        for (index in 1 until filePaths.size) {
-            val document = Document.create(filePaths[index]).also { documents.add(it) }
-            val factor = documentsWidth / document.size.width
-            documentsHeight += document.size.height * factor
-            document.minScale *= factor
-        }
-        val additionalScale = min(documentsHeight / (viewPort.height.toFloat() - 2 * MARGIN), documentsWidth / ( viewPort.width.toFloat() - 2 * MARGIN))
-        documentsHeight = documentsHeight / additionalScale + MARGIN * (documents.size - 1)
-        documents.forEach { it.minScale /= additionalScale }
-    }
-
-    private fun render(refresh: Boolean = false) {
-        if (!::viewPort.isInitialized) return
-        renderingJob?.cancel()
-        renderingJob = coroutineScope.launch {
-            layerBitmap = Bitmap.createBitmap(
-                viewPort.width,
-                viewPort.height,
-                Bitmap.Config.ARGB_8888
-            )
-            val canvas = Canvas(layerBitmap)
-            val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
-            documents.forEach {
-                it.render(canvas, scale, offset, viewPort, refresh)
-                offset.y += it.size.height * scale * it.minScale + MARGIN * scale
-            }
-            renderDrawing()
-        }
-    }
-
-    private fun renderDrawing() {
-        val bitmap = layerBitmap.copy(Bitmap.Config.ARGB_8888, true)
-        documents.forEach {
-            it.renderDrawing(
-                bitmap,
-                scale,
-                viewPort,
-                options.lineColor,
-                options.lineWidth
-            )
-        }
-        binding.viewPort.setImageBitmap(bitmap)
-    }
-
-
-    private var lastPoint: PointF? = null
-
-    private var isAfterScale = false
-    private var currentDrawing: BezierCurve? = null
-    private var startShapeOnPoint: PointF? = null
-    private var lastDifference: Float? = null
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                startShapeOnPoint = PointF(event.x, event.y)
-                render()
-            }
-
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                startShapeOnPoint = null
-                if (event.pointerCount == 2) {
-                    lastPoint = PointF(
-                        (event.getX(0) + event.getX(1)) / 2,
-                        (event.getY(0) + event.getY(1)) / 2
-                    )
-                    lastDifference = differentBetweenPoints(
-                        event.getX(0),
-                        event.getY(0),
-                        event.getX(1),
-                        event.getY(1)
-                    )
-                }
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-                var currentPoint = PointF(
-                    event.x,
-                    event.y
-                )
-                if (lastPoint == null) {
-                    lastPoint = currentPoint
-                    return true
-                }
-                startShapeOnPoint?.let {
-                    addShape(it)
-                    startShapeOnPoint = null
-                }
-                if (event.pointerCount == 2) {
-                    currentPoint = PointF(
-                        (event.getX(0) + event.getX(1)) / 2,
-                        (event.getY(0) + event.getY(1)) / 2
-                    )
-                    val currentDifference = differentBetweenPoints(
-                        event.getX(0),
-                        event.getY(0),
-                        event.getX(1),
-                        event.getY(1)
-                    )
-                    val difScale = currentDifference / lastDifference!!
-                    val difMove = currentPoint - lastPoint!!
-                    if (abs(difScale - 1) < 0.001 || abs(difMove.x) < 1 || abs(difMove.y) < 1) return true
-                    scale *= difScale
-                    //processing scaling
-                    movementDifference *= scale / previousScale
-                    movementDifference += currentPoint * (1 - scale / previousScale)
-
-                    //processing movement
-                    movementDifference += difMove
-                    movementDifference.x = movementDifference.x
-                        .coerceAtLeast(viewPort.width - (with(documents.first()) { size.width * minScale } + MARGIN * 2) * scale)
-                        .coerceAtMost(0f)
-                    movementDifference.y = movementDifference.y
-                        .coerceAtMost(0f)
-                        .coerceAtLeast(viewPort.height - (documentsHeight + MARGIN * 2) * scale)
-                    render()
-                    lastPoint = currentPoint
-                    lastDifference = currentDifference
-                } else if (!isAfterScale) drawOnDocuments(currentPoint)
-
-
-            }
-
-            MotionEvent.ACTION_POINTER_UP -> {
-                if (event.pointerCount == 2) isAfterScale = true
-                currentDrawing?.close()
-                currentDrawing = null
-                lastPoint = null
-            }
-
-            MotionEvent.ACTION_UP -> {
-                currentDrawing?.close()
-                currentDrawing = null
-                isAfterScale = false
-                lastPoint = null
-                render(true)
-            }
-        }
-        return true
-    }
-
-    private fun differentBetweenPoints(x1: Float, y1: Float, x2: Float, y2: Float) = sqrt(
-        (x2 - x1).pow(2) + (y2 - y1).pow(2)
+  private fun updateBottomControlsVisibility() {
+    binding.editControlsContainer.isVisible = editMode
+    binding.previewList.isVisible = !editMode
+    binding.bottomControls.isVisible = true
+    binding.bottomControls.setBackgroundColor(
+      if (editMode) editPanelBackgroundColor else previewPanelBackgroundColor
     )
 
-    private fun addShape(point: PointF) {
-        val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
-        documents.forEachIndexed { index, document ->
-            if (document.contains(point)) {
-                currentDrawing = BezierCurve(
-                    options.lineWidth.toFloat() / scale,
-                    options.lineColor
-                ).also {
-                    document.addDrawing(point, it)
+    binding.bottomControls.requestLayout()
+
+    if (editMode) {
+      val widthSpec = android.view.View.MeasureSpec.makeMeasureSpec(
+        binding.bottomControls.width,
+        android.view.View.MeasureSpec.EXACTLY
+      )
+      val heightSpec = android.view.View.MeasureSpec.makeMeasureSpec(
+        binding.bottomControls.height,
+        android.view.View.MeasureSpec.EXACTLY
+      )
+      binding.editControlsContainer.measure(widthSpec, heightSpec)
+      binding.editControlsContainer.layout(0, 0, binding.bottomControls.width, binding.bottomControls.height)
+    }
+
+    binding.bottomControls.post {
+      updateViewportBottomInset()
+    }
+  }
+
+  private fun clearHistoryStacks() {
+    operationList.clear()
+    redoOperationList.clear()
+    updateUndoRedoButtons()
+  }
+
+  private fun updateUndoRedoButtons() {
+    val canUndo = editMode && operationList.isNotEmpty()
+    val canRedo = editMode && redoOperationList.isNotEmpty()
+    setButtonState(binding.btnUndo, canUndo)
+    setButtonState(binding.btnRedo, canRedo)
+  }
+
+  private fun setButtonState(button: AppCompatImageButton, enabled: Boolean) {
+    button.isEnabled = enabled
+    button.alpha = if (enabled) 1f else PDFEditorConstants.DISABLED_ALPHA
+  }
+
+  private fun applyUndoRedoColor() {
+    try {
+      binding.btnUndo.setColorFilter(undoRedoIconColor)
+      binding.btnRedo.setColorFilter(undoRedoIconColor)
+    } catch (e: Exception) {
+      Log.e("PDFEditorView", "Error applying color: ${e.message}")
+    }
+  }
+
+  fun setExcludedPages(documentIndex: Int, pages: List<Int>) {
+    val document = documents.getOrNull(documentIndex) ?: return
+    val filteredPages = if (document.pageCount > 0) {
+      pages.filter { it >= 0 && it < document.pageCount }.toSet()
+    } else {
+      pages.filter { it >= 0 }.toSet()
+    }
+    excludedPages[documentIndex] = filteredPages
+  }
+
+  private fun updateViewportBottomInset() {
+    val controlsHeight = binding.bottomControls.height
+    val targetInset = (controlsHeight + systemBottomInsetPx).coerceAtLeast(0)
+    if (bottomOverlayInsetPx == targetInset) return
+
+    bottomOverlayInsetPx = targetInset
+
+    if (documents.isNotEmpty() && this::viewPort.isInitialized) {
+      clampMovementDifference()
+      render(true)
+    }
+  }
+
+  private fun installInsetsAndOverlayObservers() {
+    ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+      val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+      systemBottomInsetPx = navBars.bottom
+      updateViewportBottomInset()
+      insets
+    }
+
+    binding.bottomControls.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+      updateViewportBottomInset()
+    }
+
+    post {
+      requestApplyInsets()
+      updateViewportBottomInset()
+    }
+  }
+
+  private fun reset() {
+    scale = 1f
+    movementDifference = PointF(0f, 0f)
+    clearHistoryStacks()
+    documents.forEach { it.reset() }
+    lastPageBounds = emptyMap()
+  }
+
+  private fun updateViewPortSize() {
+    val width = binding.viewPort.width
+    val height = binding.viewPort.height
+    if (width <= 0 || height <= 0) return
+    val shouldUpdate = !this::viewPort.isInitialized || viewPort.width != width || viewPort.height != height
+    if (!shouldUpdate) return
+    viewPort = Size(width, height)
+    updateViewportBottomInset()
+    pendingOptions?.let {
+      applyOptions(it, refresh = true)
+    } ?: run {
+      if (documents.isNotEmpty()) {
+        recalculateDocumentLayout()
+        clampMovementDifference()
+        render(true)
+      }
+    }
+  }
+
+  fun setOptions(options: PDFEditorOptions) {
+    pendingOptions = options
+    this.options = options
+    if (!this::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) {
+      return
+    }
+    applyOptions(options, refresh = true)
+  }
+
+  private fun applyOptions(options: PDFEditorOptions, refresh: Boolean) {
+    if (!this::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
+    background = ColorDrawable(Color.TRANSPARENT)
+    selectionIconColor = options.selectionIconColor
+    undoRedoIconColor = options.undoRedoIconColor
+    applyUndoRedoColor()
+    val filePaths = options.filePaths
+    if (filePaths.isNullOrEmpty()) {
+      clearRenderedContent()
+      return
+    }
+    val shouldReload = documents.isEmpty() || currentFilePaths != filePaths
+    if (shouldReload) {
+      renderingJob?.cancel()
+      renderingJob = null
+      if (documents.isNotEmpty() && isAppendOnly(currentFilePaths, filePaths)) {
+        // Old paths are a strict prefix of new paths: keep drawings, history,
+        // active page and excluded pages on existing documents; only construct
+        // the appended ones.
+        appendDocuments(filePaths)
+        prepareDocumentPreviews()
+      } else {
+        buildDocuments(filePaths)
+        reset()
+        activeDocumentIndex = 0
+        excludedPages.clear()
+        lastPageBounds = emptyMap()
+        centerDocuments()
+        prepareDocumentPreviews()
+      }
+    } else {
+      recalculateDocumentLayout()
+    }
+    clampMovementDifference()
+    render(refresh || shouldReload)
+  }
+
+  private fun isAppendOnly(oldPaths: List<String>, newPaths: List<String>): Boolean {
+    if (oldPaths.isEmpty()) return false
+    if (newPaths.size <= oldPaths.size) return false
+    for (i in oldPaths.indices) {
+      if (oldPaths[i] != newPaths[i]) return false
+    }
+    return true
+  }
+
+  private fun appendDocuments(filePaths: List<String>) {
+    val startIndex = documents.size
+    for (i in startIndex until filePaths.size) {
+      Document.create(filePaths[i], context.contentResolver).also { documents.add(it) }
+    }
+    currentFilePaths = filePaths
+    recalculateDocumentLayout()
+  }
+
+  private var onSavePDFAction: (paths: List<String>?) -> Unit = {}
+
+  fun onSavePDF(action: (paths: List<String>?) -> Unit) {
+    onSavePDFAction = action
+  }
+
+  fun undo() {
+    if (!editMode) {
+      updateUndoRedoButtons()
+      return
+    }
+    operationList.removeLastOrNull()?.let {
+      documents[it].undo()
+      redoOperationList.add(it)
+      updateUndoRedoButtons()
+      render()
+    }
+  }
+
+  fun redo() {
+    if (!editMode) {
+      updateUndoRedoButtons()
+      return
+    }
+    redoOperationList.removeLastOrNull()?.let {
+      documents[it].redo()
+      operationList.add(it)
+      updateUndoRedoButtons()
+      render()
+    }
+  }
+
+  fun save() {
+    coroutineScope.launch(Dispatchers.IO) {
+      val outputs = mutableListOf<String>()
+      documents.forEachIndexed { index, document ->
+        val excluded = excludedPages[index] ?: emptySet()
+        saveDocument(document, excluded)?.let { outputs.add(it) }
+      }
+      onSavePDFAction(outputs)
+    }
+  }
+
+  private fun saveDocument(document: Document, excluded: Set<Int>): String? {
+    return outputDirectory?.let {
+      document.save(it, options, excluded)
+    }
+  }
+
+  fun clear() {
+    documents.forEach { it.clear() }
+    clearHistoryStacks()
+    render()
+  }
+
+  fun cancelEditSession() {
+    documents.forEach { it.restoreCommittedDrawings() }
+    clearHistoryStacks()
+    render()
+  }
+
+  private fun buildDocuments(filePaths: List<String>) {
+    currentFilePaths = filePaths
+    releaseDocuments()
+    if (filePaths.isEmpty()) {
+      return
+    }
+    filePaths.forEach { path ->
+      try {
+        documents.add(Document.create(path, context.contentResolver))
+      } catch (_: Throwable) {
+        // Skip unreadable paths (e.g. cache file that was unlinked by an
+        // earlier editor session) rather than aborting the whole rebuild.
+      }
+    }
+    recalculateDocumentLayout()
+  }
+
+  private fun recalculateDocumentLayout() {
+    if (!this::viewPort.isInitialized || viewPort.width == 0) return
+    val availableWidth = (viewPort.width.toFloat() - 2 * PDFEditorConstants.MARGIN).coerceAtLeast(1f)
+    documents.forEach { document ->
+      val minScale = (availableWidth / document.size.width).coerceAtLeast(0.0001f)
+      document.minScale = minScale
+    }
+  }
+
+  private fun prepareDocumentPreviews() {
+    // Build the new items first, then swap with a single adapter submit. A
+    // prior two-phase submit(empty) + submit(items) pattern caused stale
+    // children to remain on screen when the empty submit and the populated
+    // submit landed in the same frame under Fabric.
+    val newItems = documents.mapIndexed { index, document ->
+      DocumentPreviewItem(
+        index = index,
+        thumbnail = document.generateThumbnail(previewWidthPx, previewHeightPx),
+        isMultiPage = document.pageCount > 1,
+      )
+    }
+    documentPreviews.clear()
+    documentPreviews.addAll(newItems)
+
+    // Update padding BEFORE submit so the layout pass sees the correct content
+    // area. Each item carries android:layout_marginEnd uniformly, including the
+    // last one, so LinearLayoutManager consumes (itemWidth + spacing) of
+    // horizontal space per item — totalWidthPx must include the trailing
+    // spacing of the final item or the last item gets clipped off-screen.
+    val totalWidthPx =
+      documents.size * (previewItemWidthPx + previewItemSpacingPx)
+    val screenWidth = resources.displayMetrics.widthPixels
+    val sidePadding = if (totalWidthPx < screenWidth) {
+      (screenWidth - totalWidthPx) / 2
+    } else {
+      previewListSidePaddingPx
+    }
+    binding.previewList.setPadding(
+      sidePadding,
+      binding.previewList.paddingTop,
+      sidePadding,
+      binding.previewList.paddingBottom
+    )
+
+    previewAdapter.submit(documentPreviews.toList(), activeDocumentIndex)
+    binding.previewList.isVisible = true
+    binding.previewList.scrollToPosition(activeDocumentIndex.coerceAtLeast(0))
+    // Force the RecyclerView to honor the data change even when the parent
+    // (a Fabric-managed custom native view) does not propagate requestLayout
+    // up the tree. Without this manual measure+layout, newly-inserted items
+    // stay un-bound on screen when the editor returns from a covered state.
+    binding.previewList.requestLayout()
+    binding.previewList.invalidate()
+    binding.previewList.post {
+      val rv = binding.previewList
+      if (rv.width > 0 && rv.height > 0) {
+        rv.measure(
+          android.view.View.MeasureSpec.makeMeasureSpec(rv.width, android.view.View.MeasureSpec.EXACTLY),
+          android.view.View.MeasureSpec.makeMeasureSpec(rv.height, android.view.View.MeasureSpec.EXACTLY),
+        )
+        rv.layout(rv.left, rv.top, rv.right, rv.bottom)
+      }
+    }
+  }
+
+  private fun recycleDocumentPreviews() {
+    previewAdapter.submit(emptyList(), 0)
+    documentPreviews.clear()
+  }
+
+  private fun onPreviewSelected(index: Int) {
+    if (index == activeDocumentIndex || index !in documents.indices) return
+    activeDocumentIndex = index
+    lastPageBounds = emptyMap()
+    scale = 1f
+    movementDifference = PointF(0f, 0f)
+    centerDocuments()
+    previewAdapter.updateSelection(index)
+    render(true)
+  }
+
+  private fun clampMovementDifference() {
+    if (!::viewPort.isInitialized || documents.isEmpty()) {
+      movementDifference = PointF(0f, 0f)
+      return
+    }
+    val (minX, maxX) = boundsFor(contentWidth(), viewPort.width.toFloat())
+    val (minY, maxY) = verticalBoundsFor(contentHeight(), viewPort.height.toFloat())
+    movementDifference.x = movementDifference.x.coerceIn(minX, maxX)
+    movementDifference.y = movementDifference.y.coerceIn(minY, maxY)
+  }
+
+  private fun centerDocuments() {
+    if (!::viewPort.isInitialized || documents.isEmpty()) {
+      movementDifference = PointF(0f, 0f)
+      return
+    }
+    val (minX, maxX) = boundsFor(contentWidth(), viewPort.width.toFloat())
+    val (minY, maxY) = verticalBoundsFor(contentHeight(), viewPort.height.toFloat())
+    movementDifference.x = if (minX == maxX) minX else maxX
+    movementDifference.y = if (minY == maxY) minY else maxY
+  }
+
+  private fun contentWidth(): Float {
+    val document = documents.getOrNull(activeDocumentIndex) ?: return 0f
+    return document.size.width * document.minScale * scale
+  }
+
+  private fun contentHeight(): Float {
+    val document = documents.getOrNull(activeDocumentIndex) ?: return 0f
+    return document.size.height * document.minScale * scale
+  }
+
+  private fun boundsFor(content: Float, container: Float): Pair<Float, Float> {
+    if (content <= 0f || container <= 0f) return 0f to 0f
+    val margin = PDFEditorConstants.MARGIN * scale
+    val total = content + margin * 2
+    return if (total <= container) {
+      val centered = (container - total) / 2f
+      centered to centered
+    } else {
+      val min = container - total
+      min to 0f
+    }
+  }
+
+  private fun verticalBoundsFor(content: Float, container: Float): Pair<Float, Float> {
+    val (minY, maxY) = boundsFor(content, container)
+    val spacer = bottomOverlayInsetPx.toFloat()
+    return (minY - spacer) to maxY
+  }
+
+  private fun render(refresh: Boolean = false) {
+    if (!::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
+
+    pendingRefresh = pendingRefresh || refresh
+    if (renderQueued) return
+
+    renderQueued = true
+    postOnAnimation {
+      renderQueued = false
+      val shouldRefresh = pendingRefresh
+      pendingRefresh = false
+      performRender(shouldRefresh)
+      if (pendingRefresh && !renderQueued) {
+        render()
+      }
+    }
+  }
+
+  private fun performRender(refresh: Boolean = false) {
+    if (!::viewPort.isInitialized || viewPort.width == 0 || viewPort.height == 0) return
+    val document = documents.getOrNull(activeDocumentIndex)
+    if (document == null) {
+      clearRenderedContent()
+      return
+    }
+
+    renderingJob?.cancel()
+    renderingJob = coroutineScope.launch {
+      val renderStartNs = System.nanoTime()
+      val width = viewPort.width
+      val height = viewPort.height
+      val nowNs = System.nanoTime()
+      val zoomingOut = isPinching && scale < previousScale
+      if (isPinching && !refresh && shouldUseInteractivePreview(nowNs, zoomingOut)) {
+        if (renderInteractivePreview(width, height, zoomingOut)) {
+          pinchRenderAccumNs += (System.nanoTime() - renderStartNs)
+          pinchRenderFrames += 1
+          return@launch
+        }
+      }
+      val baseBitmap = obtainLayerBitmap(baseLayerBitmap, width, height, Color.TRANSPARENT)
+      baseLayerBitmap = baseBitmap
+      val canvas = Canvas(baseBitmap)
+      val offset = documentOffset(scale)
+      document.render(canvas, scale, offset, viewPort, refresh, isPinching, zoomingOut)
+      if (isPinching) {
+        renderDrawing(document, baseBitmap)
+        lastInteractiveHighQualityRenderNs = nowNs
+        lastInteractiveHighQualityScale = scale
+      } else {
+        val composedBitmap = obtainLayerBitmap(composedLayerBitmap, width, height, Color.TRANSPARENT)
+        composedLayerBitmap = composedBitmap
+        Canvas(composedBitmap).drawBitmap(baseBitmap, 0f, 0f, null)
+        renderDrawing(document, composedBitmap)
+      }
+
+      if (isPinching) {
+        pinchRenderAccumNs += (System.nanoTime() - renderStartNs)
+        pinchRenderFrames += 1
+      }
+    }
+  }
+
+  private fun renderDrawing(document: Document, bitmap: Bitmap) {
+    document.renderDrawing(
+      bitmap,
+      scale,
+      viewPort,
+      options.lineColor,
+      options.lineWidth
+    )
+    val pageBounds = copyPageBounds(document.pageBounds())
+    lastPageBounds = pageBounds
+    updateZoomReference(bitmap, pageBounds)
+    renderPageSelectionOverlay(bitmap, pageBounds)
+    presentBitmap(bitmap)
+  }
+
+  private fun renderPageSelectionOverlay(
+    bitmap: Bitmap,
+    pageBounds: Map<Int, android.graphics.RectF>,
+  ) {
+    pageSelectionRenderer.renderPageSelection(
+      bitmap = bitmap,
+      pageBounds = pageBounds,
+      activeDocumentIndex = activeDocumentIndex,
+      excludedPagesByDocument = excludedPages,
+      viewportSize = viewPort,
+      selectionIconColor = selectionIconColor,
+    )
+  }
+
+  private fun presentBitmap(bitmap: Bitmap) {
+    binding.viewPort.setImageBitmap(bitmap)
+    binding.viewPort.invalidate()
+    invalidate()
+  }
+
+  private fun handleSelectionTap(point: PointF): Boolean {
+    val document = documents.getOrNull(activeDocumentIndex) ?: return false
+    val pageIndex = pageSelectionRenderer.handleSelectionTap(
+      point = point,
+      document = document,
+      viewportSize = viewPort,
+    ) ?: return false
+
+    toggleExcludedPage(pageIndex)
+    return true
+  }
+
+  private fun toggleExcludedPage(pageIndex: Int) {
+    val document = documents.getOrNull(activeDocumentIndex) ?: return
+    val maxPageIndex = (document.pageCount - 1).coerceAtLeast(0)
+    if (pageIndex !in 0..maxPageIndex) return
+    val current = excludedPages[activeDocumentIndex]?.toMutableSet() ?: mutableSetOf()
+    if (!current.add(pageIndex)) {
+      current.remove(pageIndex)
+    }
+    excludedPages[activeDocumentIndex] = current
+    render()
+  }
+
+  private var lastPoint = PointF(0f, 0f)
+  private var isPinching = false
+  private var lastPinchDistance = 0f
+  private val minPinchDistancePx = 8f
+  private val minScaleFactorPerFrame = 0.9f
+  private val maxScaleFactorPerFrame = 1.1f
+  private var pinchGestureStartNs = 0L
+  private var pinchRenderAccumNs = 0L
+  private var pinchRenderFrames = 0
+  private var pinchEvents = 0
+  private var lastPinchFocus: PointF? = null
+  private var currentDrawing: BezierCurve? = null
+  private val drawTouchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+  private var drawDownPoint = PointF(0f, 0f)
+  private var pendingDrawStart = false
+  private var suppressDrawUntilNextDown = false
+
+  override fun onTouchEvent(event: MotionEvent): Boolean {
+    if (documents.isEmpty()) return false
+
+    when (event.actionMasked) {
+      MotionEvent.ACTION_DOWN -> {
+        val p = PointF(event.x, event.y)
+        // The page-include/exclude icon must be tappable in both view and edit
+        // modes. iOS handles this naturally because each icon is a real UIButton;
+        // on Android the icon is baked into the page bitmap, so
+        // PDFEditorView is the only thing that can intercept the tap. If the
+        // touch is outside every icon hitRect, handleSelectionTap returns
+        // false and we fall through to drawing initialization below.
+        if (handleSelectionTap(p)) {
+          parent?.requestDisallowInterceptTouchEvent(true)
+          return true
+        }
+
+        lastPoint = p
+        drawDownPoint = p
+        currentDrawing = null
+        pendingDrawStart = editMode
+        suppressDrawUntilNextDown = false
+        lastPinchFocus = null
+      }
+
+      MotionEvent.ACTION_POINTER_DOWN -> {
+        if (editMode) {
+          cancelUnfinishedDrawing()
+          suppressDrawUntilNextDown = true
+        }
+        if (event.pointerCount >= 2) {
+          beginPinch(event)
+        }
+      }
+
+      MotionEvent.ACTION_POINTER_UP -> {
+        val remainingPointers = event.pointerCount - 1
+        if (isPinching && remainingPointers < 2) {
+          endPinch()
+          if (editMode) {
+            suppressDrawUntilNextDown = true
+          }
+        } else if (remainingPointers >= 2) {
+          lastPinchFocus = pinchFocusExcludingPointer(event, event.actionIndex)
+        }
+        val remainingIndex = if (event.actionIndex == 0) 1 else 0
+        if (remainingIndex in 0 until event.pointerCount) {
+          lastPoint = PointF(event.getX(remainingIndex), event.getY(remainingIndex))
+        }
+      }
+
+      MotionEvent.ACTION_MOVE -> {
+        if (event.pointerCount == 1) {
+          val currentPoint = PointF(event.x, event.y)
+
+          if (editMode) {
+            if (!suppressDrawUntilNextDown) {
+              val document = documents[activeDocumentIndex]
+              if (currentDrawing == null && pendingDrawStart) {
+                if (distanceBetween(drawDownPoint, currentPoint) >= drawTouchSlopPx && document.contains(drawDownPoint)) {
+                  val curve = BezierCurve(options.lineWidth.toFloat(), options.lineColor)
+                  document.addDrawing(drawDownPoint, curve)
+                  currentDrawing = curve
+                  val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
+                  document.addPointToDrawing(drawDownPoint, offset, scale)
+                  pendingDrawStart = false
                 }
-                operationList.add(index)
-                return@forEachIndexed
-            }
-            offset.y += document.size.height * scale * document.minScale + MARGIN * scale
-        }
+              }
 
+              if (currentDrawing != null) {
+                val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
+                document.addPointToDrawing(currentPoint, offset, scale)
+                render()
+              }
+            }
+          } else {
+            val difMove = currentPoint - lastPoint
+            movementDifference = movementDifference + difMove
+            clampMovementDifference()
+            render()
+          }
+
+          lastPoint = currentPoint
+        } else if (event.pointerCount == 2) {
+          if (!isPinching) {
+            beginPinch(event)
+          }
+
+          val focus = pinchFocus(event)
+          applyPinchPan(focus)
+
+          val distance = pinchDistance(event)
+          if (distance > minPinchDistancePx) {
+            val rawScaleFactor = (distance / lastPinchDistance).let {
+              if (it.isNaN() || it.isInfinite()) 1f else it
+            }
+            val frameScaleFactor = rawScaleFactor.coerceIn(minScaleFactorPerFrame, maxScaleFactorPerFrame)
+            val newScale = (scale * frameScaleFactor).coerceAtLeast(1f).coerceAtMost(PDFEditorConstants.MAX_SCALE)
+            applyScaleAroundFocus(newScale, focus)
+            lastPinchDistance = distance
+          }
+
+          lastPinchFocus = focus
+          pinchEvents += 1
+          render()
+        }
+      }
+
+      MotionEvent.ACTION_UP -> {
+        if (isPinching) {
+          endPinch()
+        }
+        if (editMode) {
+          if (!suppressDrawUntilNextDown && currentDrawing != null) {
+            addShape(PointF(event.x, event.y))
+          } else {
+            cancelUnfinishedDrawing()
+          }
+          pendingDrawStart = false
+        }
+      }
+
+      MotionEvent.ACTION_CANCEL -> {
+        if (isPinching) {
+          endPinch()
+        }
+        cancelUnfinishedDrawing()
+        pendingDrawStart = false
+      }
     }
 
-    private fun drawOnDocuments(point: PointF) {
-        val offset = movementDifference + PointF(MARGIN, MARGIN) * scale
-        documents.forEach { document ->
-            if (document.contains(point)) {
-                document.addPointToDrawing(point,offset, scale)
-                renderDrawing()
-                return@forEach
-            }
-            offset.y += document.size.height * scale * document.minScale + MARGIN * scale
-        }
+    return true
+  }
+
+  private fun addShape(point: PointF) {
+    val document = documents.getOrNull(activeDocumentIndex) ?: return
+    val curve = currentDrawing ?: return
+    val offset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * scale
+    document.addPointToDrawing(point, offset, scale)
+    curve.close()
+    operationList.add(activeDocumentIndex)
+    redoOperationList.clear()
+    currentDrawing = null
+    updateUndoRedoButtons()
+    render()
+  }
+
+  private fun cancelUnfinishedDrawing() {
+    val document = documents.getOrNull(activeDocumentIndex)
+    val curve = currentDrawing
+    if (document != null && curve != null && !curve.isClosed) {
+      document.undo()
+      render()
+    }
+    currentDrawing = null
+    pendingDrawStart = false
+  }
+
+  private fun distanceBetween(a: PointF, b: PointF): Float {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return sqrt(dx * dx + dy * dy)
+  }
+
+  private fun clearRenderedContent() {
+    binding.viewPort.setImageBitmap(null)
+    binding.viewPort.invalidate()
+    recycleLayerBitmaps()
+    recycleDocumentPreviews()
+    releaseDocuments()
+    documents.clear()
+    excludedPages.clear()
+    lastPageBounds = emptyMap()
+    zoomReferencePageBounds = emptyMap()
+    activeDocumentIndex = 0
+    movementDifference = PointF(0f, 0f)
+    lastInteractiveHighQualityRenderNs = 0L
+    lastInteractiveHighQualityScale = scale
+    previewFrames = 0
+    previewFallbackFrames = 0
+    previewCoverageAccum = 0f
+    operationList.clear()
+    redoOperationList.clear()
+    updateUndoRedoButtons()
+  }
+
+  override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+    super.onSizeChanged(w, h, oldw, oldh)
+    updateViewPortSize()
+  }
+
+  override fun onDetachedFromWindow() {
+    super.onDetachedFromWindow()
+    // Cancel any in-flight render so we don't draw into a detached view, but
+    // do NOT recycle previews / release documents. Under Fabric +
+    // react-native-screens 4 with detachPreviousScreen=true this view is
+    // detached and reattached every time another screen covers the editor
+    // (e.g. the "Add more" → Camera round trip). Real cleanup lives in
+    // [dispose], called from the ViewManager's onDropViewInstance when the
+    // view is truly being destroyed.
+    renderingJob?.cancel()
+    renderingJob = null
+  }
+
+  fun dispose() {
+    renderingJob?.cancel()
+    renderingJob = null
+    binding.viewPort.setImageBitmap(null)
+    recycleLayerBitmaps()
+    recycleDocumentPreviews()
+    releaseDocuments()
+  }
+
+  private fun releaseDocuments() {
+    documents.forEach { document ->
+      try {
+        document.dispose()
+      } catch (error: Throwable) {
+        Log.w(PDFEditorConstants.ACTION_TAG, "Error releasing document", error)
+      }
+    }
+    documents.clear()
+  }
+
+  private fun recycleLayerBitmaps() {
+    baseLayerBitmap?.let { bitmap ->
+      if (!bitmap.isRecycled) bitmap.recycle()
+    }
+    baseLayerBitmap = null
+
+    composedLayerBitmap?.let { bitmap ->
+      if (!bitmap.isRecycled) bitmap.recycle()
+    }
+    composedLayerBitmap = null
+
+    zoomReferenceBitmap?.let { bitmap ->
+      if (!bitmap.isRecycled) bitmap.recycle()
+    }
+    zoomReferenceBitmap = null
+    zoomReferencePageBounds = emptyMap()
+  }
+
+  private fun obtainLayerBitmap(current: Bitmap?, width: Int, height: Int, clearColor: Int): Bitmap {
+    if (current != null && !current.isRecycled && current.width == width && current.height == height) {
+      current.eraseColor(clearColor)
+      return current
+    }
+    if (current != null && !current.isRecycled) {
+      current.recycle()
+    }
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+      it.eraseColor(clearColor)
+    }
+  }
+
+  private fun pinchDistance(event: MotionEvent): Float {
+    if (event.pointerCount < 2) return 0f
+    val dx = event.getX(0) - event.getX(1)
+    val dy = event.getY(0) - event.getY(1)
+    return sqrt(dx * dx + dy * dy)
+  }
+
+  private fun pinchFocus(event: MotionEvent): PointF {
+    if (event.pointerCount < 2) return PointF(event.x, event.y)
+    return PointF((event.getX(0) + event.getX(1)) / 2f, (event.getY(0) + event.getY(1)) / 2f)
+  }
+
+  private fun beginPinch(event: MotionEvent) {
+    val distance = pinchDistance(event).coerceAtLeast(minPinchDistancePx)
+    lastPinchDistance = distance
+    lastPinchFocus = pinchFocus(event)
+    isPinching = true
+    pinchGestureStartNs = System.nanoTime()
+    pinchRenderAccumNs = 0L
+    pinchRenderFrames = 0
+    pinchEvents = 0
+    previewFrames = 0
+    previewFallbackFrames = 0
+    previewCoverageAccum = 0f
+    lastInteractiveHighQualityRenderNs = System.nanoTime()
+    lastInteractiveHighQualityScale = scale
+  }
+
+  private fun endPinch() {
+    if (!isPinching) return
+    isPinching = false
+    lastPinchDistance = 0f
+    lastPinchFocus = null
+    render(true)
+  }
+
+  private fun applyScaleAroundFocus(newScale: Float, focus: PointF) {
+    val oldScale = scale
+    if (newScale == oldScale) return
+
+    val oldOffset = movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * oldScale
+    val contentX = (focus.x - oldOffset.x) / oldScale
+    val contentY = (focus.y - oldOffset.y) / oldScale
+
+    scale = newScale
+    val newOffset = PointF(
+      focus.x - contentX * newScale,
+      focus.y - contentY * newScale,
+    )
+    movementDifference = newOffset - PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * newScale
+    clampMovementDifference()
+  }
+
+  private fun applyPinchPan(currentFocus: PointF) {
+    val previousFocus = lastPinchFocus ?: return
+    val focusDelta = currentFocus - previousFocus
+    if (focusDelta.x == 0f && focusDelta.y == 0f) return
+    movementDifference = movementDifference + focusDelta
+    clampMovementDifference()
+  }
+
+  private fun pinchFocusExcludingPointer(event: MotionEvent, excludedIndex: Int): PointF? {
+    var sumX = 0f
+    var sumY = 0f
+    var count = 0
+    for (index in 0 until event.pointerCount) {
+      if (index == excludedIndex) continue
+      sumX += event.getX(index)
+      sumY += event.getY(index)
+      count += 1
+    }
+    if (count < 2) return null
+    return PointF(sumX / count, sumY / count)
+  }
+
+  private fun documentOffset(currentScale: Float): PointF {
+    return movementDifference + PointF(PDFEditorConstants.MARGIN, PDFEditorConstants.MARGIN) * currentScale
+  }
+
+  private fun shouldUseInteractivePreview(nowNs: Long, zoomingOut: Boolean): Boolean {
+    if (zoomReferenceBitmap == null) return false
+    val interval = if (zoomingOut) interactiveHighQualityZoomOutIntervalNs else interactiveHighQualityIntervalNs
+    if ((nowNs - lastInteractiveHighQualityRenderNs) >= interval) return false
+    if (zoomingOut && abs(scale - lastInteractiveHighQualityScale) > zoomOutFullRenderThreshold) return false
+    return true
+  }
+
+  private fun renderInteractivePreview(width: Int, height: Int, zoomingOut: Boolean): Boolean {
+    val referenceBitmap = zoomReferenceBitmap
+    if (referenceBitmap == null || referenceBitmap.isRecycled) return false
+    val previewBitmap = obtainLayerBitmap(baseLayerBitmap, width, height, Color.TRANSPARENT)
+    baseLayerBitmap = previewBitmap
+    val previewCanvas = Canvas(previewBitmap)
+    previewCanvas.drawColor(Color.TRANSPARENT)
+
+    val referenceScale = zoomReferenceScale.coerceAtLeast(0.0001f)
+    val scaleFactor = (scale / referenceScale).coerceAtLeast(0.0001f)
+    val targetOffset = documentOffset(scale)
+    val referenceOffset = zoomReferenceOffset
+    val coverage = previewCoverage(referenceBitmap, scaleFactor, targetOffset, referenceOffset, width, height)
+    previewFrames += 1
+    previewCoverageAccum += coverage
+    val hasCoverageGap = zoomingOut && coverage < previewCoverageThreshold
+    if (hasCoverageGap) {
+      previewFallbackFrames += 1
+      return false
     }
 
+    previewCanvas.save()
+    previewCanvas.translate(targetOffset.x, targetOffset.y)
+    previewCanvas.scale(scaleFactor, scaleFactor)
+    previewCanvas.translate(-referenceOffset.x, -referenceOffset.y)
+    previewCanvas.drawBitmap(referenceBitmap, 0f, 0f, null)
+    previewCanvas.restore()
+
+    val previewPageBounds = transformPageBounds(
+      pageBounds = zoomReferencePageBounds,
+      scaleFactor = scaleFactor,
+      targetOffset = targetOffset,
+      referenceOffset = referenceOffset,
+    )
+    renderPageSelectionOverlay(previewBitmap, previewPageBounds)
+    presentBitmap(previewBitmap)
+    return true
+  }
+
+  private fun previewCoverage(
+    referenceBitmap: Bitmap,
+    scaleFactor: Float,
+    targetOffset: PointF,
+    referenceOffset: PointF,
+    width: Int,
+    height: Int,
+  ): Float {
+    if (width <= 0 || height <= 0) return 1f
+    val left = targetOffset.x - referenceOffset.x * scaleFactor
+    val top = targetOffset.y - referenceOffset.y * scaleFactor
+    val right = left + referenceBitmap.width * scaleFactor
+    val bottom = top + referenceBitmap.height * scaleFactor
+    val intersectionLeft = maxOf(0f, left)
+    val intersectionTop = maxOf(0f, top)
+    val intersectionRight = minOf(width.toFloat(), right)
+    val intersectionBottom = minOf(height.toFloat(), bottom)
+    if (intersectionRight <= intersectionLeft || intersectionBottom <= intersectionTop) return 0f
+    val intersectionArea = (intersectionRight - intersectionLeft) * (intersectionBottom - intersectionTop)
+    val viewportArea = width.toFloat() * height.toFloat()
+    return if (viewportArea <= 0f) 1f else (intersectionArea / viewportArea).coerceIn(0f, 1f)
+  }
+
+  private fun updateZoomReference(
+    source: Bitmap?,
+    pageBounds: Map<Int, android.graphics.RectF> = lastPageBounds,
+  ) {
+    val sourceBitmap = source
+    if (sourceBitmap == null || sourceBitmap.isRecycled) return
+    val referenceBitmap = obtainLayerBitmap(
+      zoomReferenceBitmap,
+      sourceBitmap.width,
+      sourceBitmap.height,
+      Color.TRANSPARENT,
+    )
+    zoomReferenceBitmap = referenceBitmap
+    Canvas(referenceBitmap).drawBitmap(sourceBitmap, 0f, 0f, null)
+    zoomReferencePageBounds = copyPageBounds(pageBounds)
+    zoomReferenceScale = scale
+    zoomReferenceOffset = documentOffset(scale)
+  }
+
+  private fun transformPageBounds(
+    pageBounds: Map<Int, android.graphics.RectF>,
+    scaleFactor: Float,
+    targetOffset: PointF,
+    referenceOffset: PointF,
+  ): Map<Int, android.graphics.RectF> =
+    pageBounds.mapValues { (_, rect) ->
+      android.graphics.RectF(
+        targetOffset.x + (rect.left - referenceOffset.x) * scaleFactor,
+        targetOffset.y + (rect.top - referenceOffset.y) * scaleFactor,
+        targetOffset.x + (rect.right - referenceOffset.x) * scaleFactor,
+        targetOffset.y + (rect.bottom - referenceOffset.y) * scaleFactor,
+      )
+    }
+
+  private fun copyPageBounds(
+    pageBounds: Map<Int, android.graphics.RectF>,
+  ): Map<Int, android.graphics.RectF> =
+    pageBounds.mapValues { (_, rect) -> android.graphics.RectF(rect) }
 }

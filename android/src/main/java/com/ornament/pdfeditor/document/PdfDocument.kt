@@ -8,80 +8,134 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import android.util.Size
 import android.util.SizeF
 import com.itextpdf.kernel.pdf.PdfDocument
 import com.itextpdf.kernel.pdf.PdfReader
 import com.itextpdf.kernel.pdf.PdfWriter
 import com.itextpdf.kernel.pdf.canvas.PdfCanvas
+import com.ornament.pdfeditor.PDFEditorConstants
 import com.ornament.pdfeditor.bridge.PDFEditorOptions
 import com.ornament.pdfeditor.drawing.BezierCurve
 import java.io.ByteArrayOutputStream
-import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.util.LinkedHashMap
+import kotlin.collections.ArrayDeque
 import kotlin.math.max
 import kotlin.math.min
 
-class PdfDocument(filePath: String) : Document() {
+class PdfDocument(
+    override val filename: String,
+    override val parcelFileDescriptor: ParcelFileDescriptor
+) : Document() {
 
     companion object {
         private const val PAGE_MARGIN = 5f
+        private const val MAX_CACHED_BITMAPS = 12
     }
 
-    private var pageCount = 1
+    private data class PageCacheKey(val index: Int, val scaleBucket: Int)
+
+    private var pageCountValue = 1
     private var pdfDocument: PdfDocument
     private var renderer: PdfRenderer
-    private var currentPage: PdfRenderer.Page? = null
     private var pageSize: SizeF
     override lateinit var size: SizeF
 
-    private val bitmapPages = mutableMapOf<Int, Bitmap>()
+    override val pageCount: Int
+        get() = pageCountValue
+
+    private val bitmapPages = object : LinkedHashMap<PageCacheKey, Bitmap>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<PageCacheKey, Bitmap>?): Boolean {
+            val shouldRemove = size > MAX_CACHED_BITMAPS
+            if (shouldRemove) {
+                eldest?.value?.let { bitmap ->
+                    if (!bitmap.isRecycled) bitmap.recycle()
+                }
+            }
+            return shouldRemove
+        }
+    }
     private val boundsOfPages = mutableMapOf<Int, RectF>()
     private val pagesDrawing = mutableListOf<Pair<Int, BezierCurve>>()
-    private val fileName: String
+    private val redoStack = ArrayDeque<Pair<Int, BezierCurve>>()
+    private var committedPagesDrawing: List<Pair<Int, BezierCurve>> = emptyList()
+    private var cacheHitCount = 0L
+    private var cacheMissCount = 0L
+    private var renderCount = 0L
+    private var renderPageAccumNs = 0L
 
 
-    override fun save(outputDirectory: String, options: PDFEditorOptions): String {
+    override fun save(outputDirectory: String, options: PDFEditorOptions, excludedPages: Set<Int>): String? {
+        val includedPages = (0 until pdfDocument.numberOfPages).filterNot { excludedPages.contains(it) }
+        if (includedPages.isEmpty()) return null
+
         val outputStream = ByteArrayOutputStream()
-        val copy = PdfDocument(PdfWriter(outputStream)).also {
-            pdfDocument.copyPagesTo(1, pdfDocument.numberOfPages, it)
-        }
-        for (pageNumber in 1..pdfDocument.numberOfPages) {
-            PdfCanvas(copy.getPage(pageNumber)).let { pdfCanvas ->
-                pagesDrawing.filter { it.first == pageNumber - 1 }.forEach {
-                    it.second.drawOnPdfCanvas(pdfCanvas, pageSize, 1f / minScale)
+        val copy = PdfDocument(PdfWriter(outputStream))
+
+        includedPages.forEachIndexed { destinationIndex, pageIndex ->
+            pdfDocument.copyPagesTo(pageIndex + 1, pageIndex + 1, copy)
+            val sourcePage = pdfDocument.getPage(pageIndex + 1)
+            val rotation = sourcePage.getRotation()
+            val mediaBox = sourcePage.getMediaBox()
+            val mediaSize = SizeF(mediaBox.getWidth(), mediaBox.getHeight())
+            val copyPage = copy.getPage(destinationIndex + 1)
+            PdfCanvas(copyPage, true).let { pdfCanvas ->
+                pagesDrawing.filter { it.first == pageIndex }.forEach {
+                    it.second.drawOnPdfCanvas(pdfCanvas, pageSize, 1f / minScale, rotation, mediaSize)
                 }
             }
         }
+
         copy.close()
-        val outputPath = "$outputDirectory/$fileName-edited.pdf"
+        val outputPath = "$outputDirectory/$filename-edited.pdf"
         FileOutputStream(outputPath).also { outputFileStream ->
             outputStream.writeTo(outputFileStream)
             outputFileStream.close()
             outputStream.close()
         }
-        return outputPath
+        return "file://$outputPath"
     }
 
     init {
-        pdfDocument = PdfDocument(PdfReader(filePath))
-        renderer = PdfRenderer(
-            ParcelFileDescriptor.open(
-                File(filePath),
-                ParcelFileDescriptor.MODE_READ_ONLY
-            )
-        )
-        pageCount = renderer.pageCount
-        currentPage?.close()
-        currentPage = renderer.openPage(0)
-        pageSize = with(currentPage!!) { SizeF(width.toFloat(), height.toFloat()) }
-        size = with(currentPage!!) { SizeF(width.toFloat(), (height.toFloat() + PAGE_MARGIN) * renderer.pageCount - PAGE_MARGIN) }
-        fileName = File(filePath).nameWithoutExtension
+        FileInputStream(parcelFileDescriptor.fileDescriptor).also { inputFileStream ->
+          pdfDocument = PdfDocument(PdfReader(inputFileStream))
+          inputFileStream.close()
+        }
+        renderer = PdfRenderer(parcelFileDescriptor)
+        pageCountValue = renderer.pageCount
+        val firstPage = renderer.openPage(0)
+        pageSize = with(firstPage) { SizeF(width.toFloat(), height.toFloat()) }
+        size = with(firstPage) { SizeF(width.toFloat(), (height.toFloat() + PAGE_MARGIN) * renderer.pageCount - PAGE_MARGIN) }
+        firstPage.close()
     }
 
-    override fun render(canvas: Canvas, scale: Float, offset: PointF, viewPortSize: Size, refresh: Boolean) {
-        for (pageIndex in 0 until pdfDocument.numberOfPages) {
-            showPdfPage(canvas, pageIndex, scale * minScale, offset, viewPortSize, refresh)
+    override fun render(
+        canvas: Canvas,
+        scale: Float,
+        offset: PointF,
+        viewPortSize: Size,
+        refresh: Boolean,
+        interactive: Boolean,
+        zoomingOut: Boolean
+    ) {
+        if (refresh) {
+            recycleCachedBitmaps()
+        }
+
+        val actualScale = scale * minScale
+        val visibleRange = visiblePageRange(actualScale, offset, viewPortSize, interactive, zoomingOut)
+        if (visibleRange.isEmpty()) {
+            boundsOfPages.clear()
+            return
+        }
+
+        boundsOfPages.clear()
+        val renderOrder = prioritizedVisiblePages(visibleRange, actualScale, offset, viewPortSize)
+        for (pageIndex in renderOrder) {
+            showPdfPage(canvas, pageIndex, actualScale, offset, viewPortSize, refresh, interactive)
         }
     }
 
@@ -103,20 +157,34 @@ class PdfDocument(filePath: String) : Document() {
         }
         pageIndex?.let { index ->
             pagesDrawing.add(index to drawing)
+            redoStack.clear()
         }
     }
 
-    private fun showPdfPage(canvas: Canvas, index: Int, scale: Float, movementOffset: PointF, viewPortSize: Size, refresh: Boolean = false) {
+    private fun showPdfPage(
+        canvas: Canvas,
+        index: Int,
+        scale: Float,
+        movementOffset: PointF,
+        viewPortSize: Size,
+        refresh: Boolean = false,
+        interactive: Boolean = false
+    ) {
         val pageRect = findPdfPageRect(index, scale, movementOffset)
-        val pageBitmap = (
-                if (refresh) renderPdfPage(index, scale, movementOffset, viewPortSize)
-                else bitmapPages[index] ?: renderPdfPage(index, scale, movementOffset, viewPortSize)) ?: return
+        val cacheKey = PageCacheKey(index, cacheScaleBucket(scale, interactive))
+        val cached = if (!refresh) bitmapPages[cacheKey] else null
+        val pageBitmap = if (cached != null) {
+            cacheHitCount += 1
+            cached
+        } else {
+            cacheMissCount += 1
+            val rendered = renderPdfPage(index, scale, pageRect, viewPortSize) ?: return
+            putCachedBitmap(cacheKey, rendered)
+            rendered
+        }
         canvas.drawBitmap(pageBitmap, null, pageRect, Paint())
     }
     private fun findPdfPageRect(index: Int, scale: Float, movementOffset: PointF): RectF {
-        currentPage?.close()
-        currentPage = renderer.openPage(index)
-
         val offset = PointF(
             movementOffset.x,
             (pageSize.height + PAGE_MARGIN) * index * scale + movementOffset.y
@@ -132,23 +200,25 @@ class PdfDocument(filePath: String) : Document() {
         }
     }
 
-    private fun renderPdfPage(index: Int, scale: Float, movementOffset: PointF, viewPortSize: Size): Bitmap? {
-        val pageRect = findPdfPageRect(index, scale, movementOffset)
+    private fun renderPdfPage(index: Int, scale: Float, pageRect: RectF, viewPortSize: Size): Bitmap? {
         if (pageRect.top > viewPortSize.height || pageRect.bottom < 0) return null
+        val startedNs = System.nanoTime()
+        val page = renderer.openPage(index)
         val bitmap = Bitmap.createBitmap(
             (pageSize.width * scale).toInt(),
             (pageSize.height * scale).toInt(),
             Bitmap.Config.ARGB_8888
         )
         Canvas(bitmap).drawColor(Color.WHITE)
-        currentPage!!.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-        bitmapPages[index] = bitmap
+        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+        page.close()
+        renderPageAccumNs += (System.nanoTime() - startedNs)
         return bitmap
     }
 
     override fun renderDrawing(bitmap: Bitmap, scale: Float, viewPortSize: Size, lineColor: Int, lineWidth: Double) {
 
-        for (pageIndex in 0 until pageCount) {
+        for (pageIndex in boundsOfPages.keys) {
             renderDrawingOnPage(pageIndex, bitmap, scale, viewPortSize, lineColor, lineWidth)
         }
     }
@@ -170,41 +240,73 @@ class PdfDocument(filePath: String) : Document() {
             strokeCap = Paint.Cap.ROUND
             style = Paint.Style.STROKE
         }
-        val drawingBitmap = Bitmap.createBitmap(
-            width,
-            height,
-            Bitmap.Config.ARGB_8888
-        )
-        Canvas(drawingBitmap).let { canvas ->
-            pagesDrawing.filter { it.first == index }.forEach {
-                it.second.drawOnCanvas(
-                    canvas,
-                    pagePaint,
-                    RectF(
-                        pageRect.left - drawClip.left,
-                        pageRect.top - drawClip.top,
-                        drawClip.width(),
-                        drawClip.height()
-                    ),
-                    scale,
-                    if (it.second.isClosed) 255 else 128
-                )
-            }
+        val bitmapCanvas = Canvas(bitmap)
+        val saveCount = bitmapCanvas.save()
+        bitmapCanvas.clipRect(drawClip)
+        pagesDrawing.filter { it.first == index }.forEach {
+            it.second.drawOnCanvas(
+                bitmapCanvas,
+                pagePaint,
+                pageRect,
+                scale,
+                if (it.second.isClosed) 255 else 128
+            )
         }
-        Canvas(bitmap).drawBitmap(drawingBitmap, null, drawClip, Paint())
+        bitmapCanvas.restoreToCount(saveCount)
     }
     override fun reset() {
         boundsOfPages.clear()
-        bitmapPages.clear()
+        recycleCachedBitmaps()
         pagesDrawing.clear()
+        redoStack.clear()
     }
 
     override fun undo() {
-        pagesDrawing.removeLastOrNull()
+        pagesDrawing.removeLastOrNull()?.let { redoStack.addLast(it) }
+    }
+
+    override fun redo() {
+        redoStack.removeLastOrNull()?.let { pagesDrawing.add(it) }
     }
 
     override fun clear() {
         pagesDrawing.clear()
+        redoStack.clear()
+    }
+
+    override fun commitDrawings() {
+        committedPagesDrawing = pagesDrawing.toList()
+    }
+
+    override fun restoreCommittedDrawings() {
+        pagesDrawing.clear()
+        pagesDrawing.addAll(committedPagesDrawing)
+        redoStack.clear()
+    }
+
+    override fun pageBounds(): Map<Int, RectF> = boundsOfPages.toMap()
+
+    override fun generateThumbnail(maxWidth: Int, maxHeight: Int): Bitmap? {
+        if (maxWidth <= 0 || maxHeight <= 0 || pageCount <= 0) return null
+        return try {
+            val page = renderer.openPage(0)
+            val width = page.width
+            val height = page.height
+            val scale = min(
+                maxWidth / width.toFloat(),
+                maxHeight / height.toFloat()
+            ).coerceAtLeast(0.0001f)
+            val bitmapWidth = (width * scale).toInt().coerceAtLeast(1)
+            val bitmapHeight = (height * scale).toInt().coerceAtLeast(1)
+            val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+            Canvas(bitmap).drawColor(Color.WHITE)
+            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            page.close()
+            bitmap
+        } catch (error: Exception) {
+            android.util.Log.e("RNPDFEditor", "Failed to generate PDF thumbnail", error)
+            null
+        }
     }
 
     override fun addPointToDrawing(point: PointF, offset: PointF, scale: Float) {
@@ -212,5 +314,89 @@ class PdfDocument(filePath: String) : Document() {
             val pageOffset = PointF(boundsOfPages[it.first]?.left ?: 0f, boundsOfPages[it.first]?.top ?: 0f)
             it.second.addPoint(point, pageOffset, scale)
         }
+    }
+
+    override fun dispose() {
+        recycleCachedBitmaps()
+        try {
+            renderer.close()
+        } catch (_: Exception) {
+        }
+        try {
+            pdfDocument.close()
+        } catch (_: Exception) {
+        }
+        super.dispose()
+    }
+
+    private fun visiblePageRange(
+        scale: Float,
+        movementOffset: PointF,
+        viewPortSize: Size,
+        interactive: Boolean,
+        zoomingOut: Boolean
+    ): IntRange {
+        if (pageCount <= 0) return IntRange.EMPTY
+        val pageStep = (pageSize.height + PAGE_MARGIN) * scale
+        if (pageStep <= 0f) return IntRange.EMPTY
+
+        val viewportTop = 0f
+        val viewportBottom = viewPortSize.height.toFloat()
+        val overscan = when {
+            interactive && zoomingOut -> 3
+            interactive -> 2
+            else -> 1
+        }
+        val start = (((viewportTop - movementOffset.y) / pageStep).toInt() - overscan).coerceAtLeast(0)
+        val end = (((viewportBottom - movementOffset.y) / pageStep).toInt() + overscan)
+            .coerceAtMost(pageCount - 1)
+
+        return if (start > end) IntRange.EMPTY else start..end
+    }
+
+    private fun cacheScaleBucket(scale: Float, interactive: Boolean): Int {
+        val precision = if (interactive) 20 else 100
+        return (scale * precision).toInt().coerceAtLeast(1)
+    }
+
+    private fun prioritizedVisiblePages(
+        visibleRange: IntRange,
+        scale: Float,
+        movementOffset: PointF,
+        viewPortSize: Size
+    ): List<Int> {
+        if (visibleRange.isEmpty()) return emptyList()
+        val pageStep = (pageSize.height + PAGE_MARGIN) * scale
+        if (pageStep <= 0f) return visibleRange.toList()
+
+        val centerY = viewPortSize.height / 2f
+        val centerPage = (((centerY - movementOffset.y) / pageStep).toInt())
+            .coerceIn(visibleRange.first, visibleRange.last)
+
+        val result = mutableListOf<Int>()
+        result.add(centerPage)
+        var delta = 1
+        while (result.size < visibleRange.count()) {
+            val left = centerPage - delta
+            val right = centerPage + delta
+            if (left >= visibleRange.first) result.add(left)
+            if (right <= visibleRange.last) result.add(right)
+            delta += 1
+        }
+        return result
+    }
+
+    private fun putCachedBitmap(key: PageCacheKey, bitmap: Bitmap) {
+        bitmapPages.remove(key)?.let { previous ->
+            if (!previous.isRecycled) previous.recycle()
+        }
+        bitmapPages[key] = bitmap
+    }
+
+    private fun recycleCachedBitmaps() {
+        bitmapPages.values.forEach { bitmap ->
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
+        bitmapPages.clear()
     }
 }

@@ -1,10 +1,10 @@
 {
   "name": "@ornament-health/react-native-pdf-editor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Ornament React Native PDF editor",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
-  "types": "lib/typescript/src/index.d.ts",
+  "types": "src/index.ts",
   "react-native": "src/index.ts",
   "source": "src/index",
   "files": [
@@ -144,7 +144,12 @@
     "targets": [
       "commonjs",
       "module",
-      "typescript"
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
     ]
   }
 }

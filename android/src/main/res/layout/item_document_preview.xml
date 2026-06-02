@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/pdfeditor_preview_item_width"
+    android:layout_height="@dimen/pdfeditor_preview_item_height"
+    android:layout_marginEnd="@dimen/pdfeditor_preview_item_spacing"
+    android:clipChildren="false"
+    android:clipToPadding="false">
+
+    <FrameLayout
+        android:id="@+id/preview_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false">
+
+        <View
+            android:id="@+id/back_sheet_far"
+            android:layout_width="@dimen/pdfeditor_preview_sheet_width"
+            android:layout_height="@dimen/pdfeditor_preview_sheet_height"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_preview_sheet"
+            android:translationX="@dimen/pdfeditor_preview_stack_offset"
+            android:translationY="@dimen/pdfeditor_preview_stack_offset"
+            android:visibility="gone" />
+
+        <View
+            android:id="@+id/back_sheet_near"
+            android:layout_width="@dimen/pdfeditor_preview_sheet_width"
+            android:layout_height="@dimen/pdfeditor_preview_sheet_height"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_preview_sheet"
+            android:translationX="0dp"
+            android:translationY="0dp"
+            android:visibility="gone" />
+
+        <FrameLayout
+            android:id="@+id/front_sheet"
+            android:layout_width="@dimen/pdfeditor_preview_sheet_width"
+            android:layout_height="@dimen/pdfeditor_preview_sheet_height"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_preview_sheet">
+
+            <ImageView
+                android:id="@+id/thumbnail"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_margin="@dimen/pdfeditor_preview_sheet_inset"
+                android:adjustViewBounds="true"
+                android:background="@android:color/white"
+                android:contentDescription="@string/pdfeditor_preview_content_description"
+                android:scaleType="centerCrop" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/bg_preview_sheet_border" />
+
+        </FrameLayout>
+
+    </FrameLayout>
+
+</FrameLayout>

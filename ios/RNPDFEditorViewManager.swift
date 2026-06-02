@@ -11,6 +11,18 @@ class RNPDFEditorViewManager: RCTViewManager {
         return true
     }
 
+    @objc func setEditMode(_ node:NSNumber, isEdit: NSNumber) {
+      DispatchQueue.main.async {
+          guard let component = self.bridge.uiManager.view(
+              forReactTag: node
+          ) as? ContainerView else {
+              print("RNPDFEditor: Cannot find Native UIView with tag", node)
+              return
+          }
+          component.setEditMode(isEdit.boolValue)
+      }
+    }
+
     @objc func undoAction(_ node:NSNumber) {
       DispatchQueue.main.async {
           guard let component = self.bridge.uiManager.view(
@@ -19,7 +31,7 @@ class RNPDFEditorViewManager: RCTViewManager {
               print("RNPDFEditor: Cannot find Native UIView with tag", node)
               return
           }
-          component.undoButtonTapped()
+          component.undo()
       }
     }
 
@@ -31,7 +43,19 @@ class RNPDFEditorViewManager: RCTViewManager {
               print("RNPDFEditor: Cannot find Native UIView with tag", node)
               return
           }
-          component.clearButtonTapped()
+          component.clear()
+      }
+    }
+
+    @objc func cancelEditAction(_ node:NSNumber) {
+      DispatchQueue.main.async {
+          guard let component = self.bridge.uiManager.view(
+              forReactTag: node
+          ) as? ContainerView else {
+              print("RNPDFEditor: Cannot find Native UIView with tag", node)
+              return
+          }
+          component.cancelEditSession()
       }
     }
 
@@ -43,7 +67,7 @@ class RNPDFEditorViewManager: RCTViewManager {
               print("RNPDFEditor: Cannot find Native UIView with tag", node)
               return
           }
-          component.saveButtonTapped()
+          component.save()
       }
     }
 }

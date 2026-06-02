@@ -1,8 +1,3 @@
-//
-//  DrawingAnnotation.swift
-//  react-native-pdf-editor
-//
-
 import Foundation
 import PDFKit
 

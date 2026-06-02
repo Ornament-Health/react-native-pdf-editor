@@ -1,8 +1,3 @@
-//
-//  ContainerView.swift
-//  react-native-pdf-editor
-// 
-
 import Foundation
 import PDFKit
 import UIKit
@@ -10,282 +5,352 @@ import UIKit
 @objc(ContainerView)
 class ContainerView: UIView {
 
-    enum CanvasType: String {
-        case pdf
-        case image
+  // MARK: - UI Components
+  @objc var pdfView: NonSelectablePDFView!
+  var fileSwitcher: FileSwitcher!
+  var editControlsContainer: UIView!
+  var bottomOverlayContainer: UIView!
+  var bottomOverlayHeightConstraint: NSLayoutConstraint?
+  var undoButton: UIButton!
+  var redoButton: UIButton!
+  var undoButtonBackgroundView: UIView!
+  var redoButtonBackgroundView: UIView!
+  let editControlDisabledAlpha: CGFloat = 0.4
+  let bottomControlsHeight: CGFloat = PreviewPanelMetrics.panelHeight
+
+  // MARK: - Configuration
+  @objc var options: [String: Any] = [:] {
+    didSet {
+      updateWithOptions(options)
+    }
+  }
+
+  @objc var onSavePDF: RCTDirectEventBlock?
+  @objc var onError: RCTDirectEventBlock?
+
+  // MARK: - Drawing & Documents
+  var pdfDrawers: [Int: PDFDrawer] = [:]
+  var activeDrawer: PDFDrawer?
+  var drawerColor: UIColor = .red
+  var drawerWidth: CGFloat = 5
+  var drawerAlpha: CGFloat = 0.3
+  var filePaths = [String]()
+  var documents = [RNPDFDocument]()
+  var currentDocumentIndex = 0
+  var documentHistoryStates: [Int: PDFDrawer.HistoryState] = [:]
+  var excludedPages: [Int: Set<Int>] = [:]
+  var selectionIconColor: UIColor = .white
+  var undoRedoIconColor: UIColor = .white
+
+  // MARK: - Gesture Recognizers
+  var isEditMode: Bool = false
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    setupView()
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("RNPDFEditor: init(coder:) has not been implemented")
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    updateBottomOverlayLayout()
+    updatePDFBottomInset()
+  }
+
+  override func safeAreaInsetsDidChange() {
+    super.safeAreaInsetsDidChange()
+    updateBottomOverlayLayout()
+    updatePDFBottomInset()
+  }
+
+  @objc func setEditMode(_ isEdit: Bool) {
+    setEditModeImpl(isEdit)
+  }
+
+  @objc func save() {
+    saveImpl()
+  }
+
+  private func updateWithOptions(_ options: [String: Any]) {
+    if let arrayOfPaths = options["files"] as? [String] {
+      let unchanged = !documents.isEmpty && arrayOfPaths == filePaths
+      let isPureAppend = !documents.isEmpty
+        && isAppendOnly(oldPaths: filePaths, newPaths: arrayOfPaths)
+
+      if unchanged {
+        // No file-list change; only drawer/icon options below need updating.
+      } else if isPureAppend {
+        // Old paths are a strict prefix of new paths: keep drawings, history,
+        // current page and excluded pages on existing documents; only build the
+        // appended ones.
+        appendDocuments(arrayOfPaths)
+      } else {
+        documents.removeAll()
+        excludedPages.removeAll()
+        documentHistoryStates.removeAll()
+        pdfDrawers.removeAll()
+        activeDrawer = nil
+        filePaths.removeAll()
+        currentDocumentIndex = 0
+        pdfView.clearPageIndicators()
+
+        filePaths = arrayOfPaths
+        for (index, value) in filePaths.enumerated() {
+          if let document = RNPDFDocument(id: index, path: value) {
+            documents.append(document)
+          }
+        }
+        self.renderDocuments(for: documents)
+      }
+    } else {
+      print("RNPDFEditor: \"files\" value is wrong")
     }
 
-    @objc var pdfView: NonSelectablePDFView!
-
-    @objc var options: [String: Any] = [:] {
-        didSet {
-            updateWithOptions(options)
-        }
+    if let drawLine = options["drawLine"] as? [String: Any] {
+      if let lineColor = drawLine["color"] as? String {
+        drawerColor = UIColor(hexString: lineColor)
+        refreshDrawerAppearances()
+      }
+      if let lineWidth = drawLine["width"] as? Float {
+        drawerWidth = CGFloat(lineWidth)
+        refreshDrawerAppearances()
+      } else if let lineWidth = drawLine["width"] as? Double {
+        drawerWidth = CGFloat(lineWidth)
+        refreshDrawerAppearances()
+      } else if let lineWidth = drawLine["width"] as? NSNumber {
+        drawerWidth = CGFloat(truncating: lineWidth)
+        refreshDrawerAppearances()
+      }
     }
 
-    @objc var onSavePDF: RCTDirectEventBlock?
-    @objc var onError: RCTDirectEventBlock?
+    if let icons = options["icons"] as? [String: Any] {
+      if let iconColor = icons["unselectedColor"] as? String {
+        selectionIconColor = UIColor(hexString: iconColor)
+      } else {
+        selectionIconColor = .white
+      }
 
-    private var toolBarView: ToolBarView!
-    private let pdfDrawer = PDFDrawer()
-    private var fileName = ""
-    private var canvasType: CanvasType = .pdf
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setupView()
+      if let undoRedoColor = icons["undoRedoColor"] as? String {
+        undoRedoIconColor = UIColor(hexString: undoRedoColor)
+      } else {
+        undoRedoIconColor = .white
+      }
+    } else {
+      selectionIconColor = .white
+      undoRedoIconColor = .white
     }
 
-    required init?(coder: NSCoder) {
-        fatalError("RNPDFEditor: init(coder:) has not been implemented")
+    applyUndoRedoColor()
+  }
+
+  private func renderDocuments(for documents: [RNPDFDocument]) {
+    if documents.isEmpty {
+      print("RNPDFEditor: documents is empty")
+      return
     }
 
-    private func setupView() {
-        let toolBarView = ToolBarView()
-        toolBarView.translatesAutoresizingMaskIntoConstraints = false
-        toolBarView.delegate = self
-        toolBarView.isHidden = true
+    fileSwitcher.configure(with: documents, selectedIndex: currentDocumentIndex)
+    renderDocument(at: 0)
+  }
 
-        let pdfView = NonSelectablePDFView()
-        pdfView.backgroundColor = .lightGray
-        pdfView.translatesAutoresizingMaskIntoConstraints = false
-        pdfView.displayMode = .singlePageContinuous
-        pdfView.displayDirection = .vertical
-        pdfView.usePageViewController(false)
-        pdfView.pageBreakMargins = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        pdfView.autoScales = true
-        pdfView.isHidden = true
+  private func isAppendOnly(oldPaths: [String], newPaths: [String]) -> Bool {
+    guard !oldPaths.isEmpty else { return false }
+    guard newPaths.count > oldPaths.count else { return false }
+    for i in oldPaths.indices where oldPaths[i] != newPaths[i] {
+      return false
+    }
+    return true
+  }
 
-        let stackView = UIStackView(arrangedSubviews: [toolBarView, pdfView])
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.axis = .vertical
-        stackView.spacing = 0
-        stackView.distribution = .fill
+  private func appendDocuments(_ newPaths: [String]) {
+    let startIndex = documents.count
+    for i in startIndex..<newPaths.count {
+      if let document = RNPDFDocument(id: i, path: newPaths[i]) {
+        documents.append(document)
+      }
+    }
+    filePaths = newPaths
+    fileSwitcher.configure(with: documents, selectedIndex: currentDocumentIndex)
+  }
 
-        self.addSubview(stackView)
-
-        NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: self.safeAreaLayoutGuide.topAnchor),
-            self.safeAreaLayoutGuide.bottomAnchor.constraint(equalTo: stackView.bottomAnchor),
-            toolBarView.heightAnchor.constraint(equalToConstant: 40),
-
-            stackView.leadingAnchor.constraint(equalTo: self.safeAreaLayoutGuide.leadingAnchor),
-            self.safeAreaLayoutGuide.trailingAnchor.constraint(equalTo: stackView.trailingAnchor)
-        ])
-
-        self.pdfView = pdfView
-        self.toolBarView = toolBarView
+  private func loadDocument(_ document: RNPDFDocument, completion: @escaping (PDFDocument?) -> Void)
+  {
+    if let existing = document.renderedDocument {
+      completion(existing)
+      return
     }
 
-    private func updateWithOptions(_ options: [String: Any]) {
+    document.convert { convertedDocument in
+      document.renderedDocument = convertedDocument
+      completion(convertedDocument)
+    }
+  }
 
-        if let canvasType = options["canvasType"] as? String {
-            if canvasType == CanvasType.pdf.rawValue {
-                self.canvasType = .pdf
-            } else if canvasType == CanvasType.image.rawValue {
-                self.canvasType = .image
-            }
-        } else {
-            print("RNPDFEditor: \"fileName\" value is wrong")
+  private func renderDocument(at index: Int) {
+    guard index >= 0 && index < documents.count else { return }
+
+    currentDocumentIndex = index
+    let document = documents[index]
+
+    loadDocument(document) { [weak self] convertedDocument in
+      guard let self = self, let convertedDocument = convertedDocument else { return }
+
+      DispatchQueue.main.async {
+        self.pdfView.isHidden = false
+        self.pdfView.document = convertedDocument
+        self.pdfView.disableSelection(in: self.pdfView)
+        self.pdfView.onTogglePage = { [weak self] pageIndex in
+          self?.togglePageExclusion(pageIndex: pageIndex)
         }
 
-        if let fileName = options["fileName"] as? String {
-            self.fileName = fileName
-            switch canvasType {
-            case .image:
-                loadImage(for: fileName)
-            case .pdf:
-                loadPDF(for: fileName)
-            }
-        } else {
-            print("RNPDFEditor: \"fileName\" value is wrong")
+        self.activeDrawer?.pdfView = nil
+        let drawer = self.drawer(for: document)
+        drawer.pdfView = self.pdfView
+        self.pdfView.drawingDelegate = drawer
+        self.activeDrawer = drawer
+        self.applyStoredHistoryState(for: document)
+
+        // Reset pan/zoom on document load
+        self.pdfView.goToFirstPage(nil)
+        self.configureScrollView()
+
+        // Defer zoom reset until layout is complete to avoid oversized initial render
+        self.setNeedsLayout()
+        self.layoutIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+          guard let self = self else { return }
+          self.resetZoomScales()
+          self.updatePDFBottomInset()
         }
 
-        if let isHidden = options["isToolBarHidden"] as? Bool {
-            toolBarView.isHidden = isHidden
-        } else {
-            print("RNPDFEditor: \"isToolBarHidden\" value is wrong")
-        }
+        self.fileSwitcher.selectFile(at: index)
+        self.configurePageIndicators(for: document)
+      }
+    }
+  }
 
-        if let pdfViewBackgroundColor = options["viewBackgroundColor"] as? String {
-            pdfView.backgroundColor  = UIColor(hexString: pdfViewBackgroundColor)
-        } else {
-            print("RNPDFEditor: \"pdfViewBackgroundColor\" value is wrong")
-        }
-
-        if let lineColor = options["lineColor"] as? String {
-            pdfDrawer.color = UIColor(hexString: lineColor)
-        } else {
-            print("RNPDFEditor: \"lineColor\" value is wrong")
-        }
-
-        if let lineWidth = options["lineWidth"] as? Float {
-            pdfDrawer.width = CGFloat(lineWidth)
-        } else {
-            print("RNPDFEditor: \"lineWidth\" value is wrong")
-        }
-
+  private func drawer(for document: RNPDFDocument) -> PDFDrawer {
+    if let drawer = pdfDrawers[document.id] {
+      configureDrawerAppearance(drawer)
+      drawer.historyDelegate = self
+      return drawer
     }
 
-    private func loadPDF(for pathString: String) {
-        guard let url = URL(string: pathString) else {
-            print("RNPDFEditor: can't create URL from string")
-            return
-        }
-        if let document = PDFDocument(url: url) {
-            self.pdfView.isHidden = false
-            self.pdfView.drawingDelegate = pdfDrawer
-            self.pdfView.document = document
-            self.pdfView.disableSelection(in: self.pdfView)
+    let drawer = PDFDrawer()
+    configureDrawerAppearance(drawer)
+    drawer.historyDelegate = self
+    drawer.markBaseline()
+    pdfDrawers[document.id] = drawer
+    return drawer
+  }
 
-            self.pdfDrawer.pdfView = pdfView
-        } else {
-            print("RNPDFEditor: can't create PDF document from URL")
-        }
+  private func applyStoredHistoryState(for document: RNPDFDocument) {
+    guard isEditMode else {
+      updateUndoRedoButtons(canUndo: false, canRedo: false)
+      return
     }
 
-    private func loadImage(for pathString: String) {
-        let url = URL(fileURLWithPath: pathString)
-        if let imageData = try? Data(contentsOf: url), let image = UIImage(data: imageData) {
-            let document = PDFDocument()
-            let pdfPage = PDFPage(image: image)
-            document.insert(pdfPage!, at: 0)
-
-            self.pdfView.isHidden = false
-            self.pdfView.drawingDelegate = pdfDrawer
-            self.pdfView.document = document
-            self.pdfView.disableSelection(in: self.pdfView)
-
-            self.pdfDrawer.pdfView = pdfView
-        } else {
-            print("RNPDFEditor: can't create Image from URL")
-        }
+    if let state = documentHistoryStates[document.id] {
+      updateUndoRedoButtons(canUndo: state.canUndo, canRedo: state.canRedo)
+    } else {
+      updateUndoRedoButtons(canUndo: false, canRedo: false)
     }
+  }
 
-    private func savePDF() {
-        guard let onSavePDF = self.onSavePDF else {
-            print("RNPDFEditor: onSavePDF is nil, can't return value")
-            return
-        }
+  private func configureDrawerAppearance(_ drawer: PDFDrawer?) {
+    guard let drawer = drawer else { return }
+    drawer.color = drawerColor
+    drawer.width = drawerWidth
+    drawer.alpha = drawerAlpha
+  }
 
-        var params: [String : String?] = ["url" : nil]
-
-        let today = Date()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-
-        if let fileNameWithExt = fileName.components(separatedBy: "/").last,
-           let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
-            let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".pdf"
-            let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
-
-            guard let document = pdfView.document,
-                  let page = document.page(at: 0) else {
-                print("RNPDFEditor: PDF not writed locally")
-                onSavePDF(params as [AnyHashable : Any])
-                return
-            }
-            let bounds = page.bounds(for: .cropBox)
-
-            let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
-
-            let image = renderer.image { (context) in
-                context.cgContext.saveGState()
-                context.cgContext.translateBy(x: 0, y: bounds.height)
-                context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
-                page.draw(with: .mediaBox, to: context.cgContext)
-                context.cgContext.restoreGState()
-            }
-
-            let newPage = PDFPage(image: image)!
-
-            for annotation in page.annotations {
-                newPage.addAnnotation(annotation)
-            }
-
-            document.insert(newPage, at: 0)
-            document.removePage(at: 1)
-
-            document.write(to: fileURL)
-
-            params["url"] = fileURL.absoluteString
-            onSavePDF(params as [AnyHashable : Any])
-        } else {
-            print("RNPDFEditor: can't handle URL")
-            onSavePDF(params as [AnyHashable : Any])
-        }
+  private func refreshDrawerAppearances() {
+    for drawer in pdfDrawers.values {
+      configureDrawerAppearance(drawer)
     }
+    configureDrawerAppearance(activeDrawer)
+  }
 
-    private func saveImage() {
-        guard let onSavePDF = self.onSavePDF else {
-            print("RNPDFEditor: error while saving image, onSavePDF is nil, can't return value")
-            return
-        }
+  private func configurePageIndicators(for document: RNPDFDocument) {
+    let excluded = excludedPages[document.id] ?? []
+    pdfView.updatePageIndicators(excluded: excluded, iconColor: selectionIconColor)
+  }
 
-        var params: [String : String?] = ["url" : nil]
+  private func togglePageExclusion(pageIndex: Int) {
+    guard currentDocumentIndex < documents.count else { return }
+    let documentId = documents[currentDocumentIndex].id
 
-        let today = Date()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-
-        if let fileNameWithExt = fileName.components(separatedBy: "/").last,
-           let fileNameRaw = fileNameWithExt.components(separatedBy: ".").first {
-            let newPathComponent = fileNameRaw + "_" + formatter.string(from: today) + ".png"
-            let fileURL = getDocumentsDirectory().appendingPathComponent(newPathComponent)
-
-            guard let document = pdfView.document,
-                  let page = document.page(at: 0) else {
-                print("RNPDFEditor: image not writed locally")
-                onSavePDF(params as [AnyHashable : Any])
-                return
-            }
-            let bounds = page.bounds(for: .cropBox)
-
-            let renderer = UIGraphicsImageRenderer(bounds: bounds, format: UIGraphicsImageRendererFormat.default())
-
-            let image = renderer.image { (context) in
-                context.cgContext.saveGState()
-                context.cgContext.translateBy(x: 0, y: bounds.height)
-                context.cgContext.concatenate(CGAffineTransform.init(scaleX: 1, y: -1))
-                page.draw(with: .mediaBox, to: context.cgContext)
-                context.cgContext.restoreGState()
-            }
-
-            if let data = image.pngData() {
-                do {
-                    try data.write(to: fileURL)
-                } catch {
-                    print("RNPDFEditor: can't create image for saving")
-                    onSavePDF(params as [AnyHashable : Any])
-                    return
-                }
-            }
-            params["url"] = fileURL.absoluteString
-            onSavePDF(params as [AnyHashable : Any])
-        } else {
-            print("RNPDFEditor: can't handle URL")
-            onSavePDF(params as [AnyHashable : Any])
-        }
+    var pages = excludedPages[documentId] ?? []
+    if pages.contains(pageIndex) {
+      pages.remove(pageIndex)
+    } else {
+      pages.insert(pageIndex)
     }
+    excludedPages[documentId] = pages
+    configurePageIndicators(for: documents[currentDocumentIndex])
+  }
 
-    private func getDocumentsDirectory() -> URL {
-        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-        let documentsDirectory = paths[0]
-        return documentsDirectory
+  func commitAllDrawerHistoriesAsBaseline() {
+    for (documentId, drawer) in pdfDrawers {
+      drawer.markBaseline()
+      documentHistoryStates[documentId] = PDFDrawer.HistoryState(
+        canUndo: false,
+        canRedo: false,
+        isAtBaseline: true
+      )
     }
+  }
 }
 
-extension ContainerView: ToolBarViewDelegate {
+extension ContainerView {
+  @objc func undo() {
+    activeDrawer?.undo()
+  }
 
-    func undoButtonTapped() {
-        pdfDrawer.undo()
-    }
+  @objc func redo() {
+    activeDrawer?.redo()
+  }
 
-    func clearButtonTapped() {
-        pdfDrawer.clear()
-    }
+  @objc func clear() {
+    activeDrawer?.clear()
+  }
 
-    func saveButtonTapped() {
-        canvasType == .image ? self.saveImage() : self.savePDF()
+  @objc func cancelEditSession() {
+    for (documentId, drawer) in pdfDrawers {
+      drawer.revertToBaseline()
+      documentHistoryStates[documentId] = PDFDrawer.HistoryState(
+        canUndo: false,
+        canRedo: false,
+        isAtBaseline: true
+      )
     }
+    updateUndoRedoButtons(canUndo: false, canRedo: false)
+  }
+}
+
+extension ContainerView: FileSwitcherDelegate {
+  func didSelectFile(at index: Int) {
+    renderDocument(at: index)
+  }
+}
+
+extension ContainerView: PDFDrawerHistoryDelegate {
+  func pdfDrawer(_ drawer: PDFDrawer, historyDidChange state: PDFDrawer.HistoryState) {
+    guard let documentId = pdfDrawers.first(where: { $0.value === drawer })?.key else { return }
+    documentHistoryStates[documentId] = state
+
+    guard isEditMode else { return }
+    guard let current = documents[safe: currentDocumentIndex], current.id == documentId else { return }
+    updateUndoRedoButtons(canUndo: state.canUndo, canRedo: state.canRedo)
+  }
+}
+
+// MARK: - Safe collection access
+extension Collection {
+  fileprivate subscript(safe index: Index) -> Element? {
+    return indices.contains(index) ? self[index] : nil
+  }
 }

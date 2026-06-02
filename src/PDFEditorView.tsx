@@ -1,6 +1,7 @@
 import React, {
   forwardRef,
   useImperativeHandle,
+  useMemo,
   useRef,
   SyntheticEvent,
 } from 'react';
@@ -8,6 +9,7 @@ import {
   Platform,
   requireNativeComponent,
   ViewStyle,
+  StyleProp,
   UIManager,
   findNodeHandle,
 } from 'react-native';
@@ -15,28 +17,44 @@ import type { Float } from 'react-native/Libraries/Types/CodegenTypes';
 
 const ComponentName = 'RNPDFEditorView';
 
-interface ExtRef {
-  undoAction(): void;
-  clearAction(): void;
-  saveAction(): void;
+const DEFAULT_OPTIONS = {
+  drawLine: {
+    color: '#555555',
+    width: 10 as Float,
+  },
+  icons: {
+    unselectedColor: '#FFFFFF',
+    undoRedoColor: '#FFFFFF',
+  },
+};
+
+export interface PDFEditorOptions {
+  files: string[];
+  drawLine?: {
+    color?: string;
+    width?: Float;
+  };
+  icons?: {
+    unselectedColor?: string;
+    undoRedoColor?: string;
+  };
 }
 
 interface RNComponentProps {
-  style: ViewStyle;
-  options: {
-    filePath: string[];
-    canvasType: string;
-    isToolBarHidden?: boolean;
-    viewBackgroundColor?: string;
-    lineColor?: string;
-    lineWidth?: Float;
-  };
-  onSavePDF?(url: string[] | null): void;
+  style: StyleProp<ViewStyle>;
+  options: PDFEditorOptions;
+  onSavePDF?: (url: string[] | null) => void;
 }
 
-export interface RNComponentManagerProps
-  extends Omit<RNComponentProps, 'onSavePDF'>,
-    ExtRef {
+interface ExtRef {
+  undoAction(): void;
+  clearAction(): void;
+  cancelEditAction(): void;
+  saveAction(): void;
+  setEditMode(isEdit: boolean): void;
+}
+
+interface RNComponentManagerProps extends Omit<RNComponentProps, 'onSavePDF'> {
   onSavePDF(event: SyntheticEvent): void;
 }
 
@@ -45,13 +63,43 @@ const RNComponentViewManager =
 type PDFEVRef = React.ComponentRef<typeof RNComponentViewManager>;
 
 export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
-  ({ onSavePDF, ...props }, extRef) => {
+  ({ onSavePDF, options, ...props }, extRef) => {
+    const mergedOptions = useMemo(
+      () => ({
+        ...DEFAULT_OPTIONS,
+        ...options,
+        drawLine: {
+          ...DEFAULT_OPTIONS.drawLine,
+          ...(options.drawLine ?? {}),
+        },
+        icons: {
+          ...DEFAULT_OPTIONS.icons,
+          ...(options.icons ?? {}),
+        },
+      }),
+      [options]
+    );
     useImperativeHandle(extRef, () => ({
       undoAction,
       clearAction,
+      cancelEditAction,
       saveAction,
+      setEditMode,
     }));
     const componentRef = useRef<PDFEVRef>(null);
+
+    const setEditMode = (isEdit: boolean) => {
+      if (componentRef && componentRef.current) {
+        UIManager.dispatchViewManagerCommand(
+          findNodeHandle(componentRef.current),
+          Platform.OS === 'ios'
+            ? (UIManager.getViewManagerConfig(ComponentName).Commands
+                .setEditMode as number)
+            : 'setEditMode',
+          [isEdit]
+        );
+      }
+    };
 
     const undoAction = () => {
       if (componentRef && componentRef.current) {
@@ -61,7 +109,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
             ? (UIManager.getViewManagerConfig(ComponentName).Commands
                 .undoAction as number)
             : 'undoAction',
-          undefined
+          []
         );
       }
     };
@@ -74,7 +122,20 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
             ? (UIManager.getViewManagerConfig(ComponentName).Commands
                 .clearAction as number)
             : 'clearAction',
-          undefined
+          []
+        );
+      }
+    };
+
+    const cancelEditAction = () => {
+      if (componentRef && componentRef.current) {
+        UIManager.dispatchViewManagerCommand(
+          findNodeHandle(componentRef.current),
+          Platform.OS === 'ios'
+            ? (UIManager.getViewManagerConfig(ComponentName).Commands
+                .cancelEditAction as number)
+            : 'cancelEditAction',
+          []
         );
       }
     };
@@ -87,26 +148,22 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
             ? (UIManager.getViewManagerConfig(ComponentName).Commands
                 .saveAction as number)
             : 'saveAction',
-          undefined
+          []
         );
       }
     };
 
-    const getURLString = (nativeEvent: any) => {
-      if (nativeEvent.hasOwnProperty('url')) {
-        return nativeEvent.url;
-      }
-      return null;
+    const getURLs = (nativeEvent: { url?: string[] | null }): string[] | null => {
+      const value = nativeEvent.url;
+      return Array.isArray(value) ? value : null;
     };
 
     return (
       <RNComponentViewManager
         ref={componentRef}
-        undoAction={undoAction}
-        clearAction={clearAction}
-        saveAction={saveAction}
+        options={mergedOptions}
         onSavePDF={(event: SyntheticEvent) =>
-          onSavePDF && onSavePDF(getURLString(event.nativeEvent))
+          onSavePDF?.(getURLs(event.nativeEvent as { url?: string[] | null }))
         }
         {...props}
       />
