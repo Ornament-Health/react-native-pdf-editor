@@ -29,6 +29,15 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
                     event
                 )
             }
+            onSelectionChanged { count ->
+                val event = Arguments.createMap()
+                event.putInt("count", count)
+                reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(
+                    id,
+                    "selectionChange",
+                    event
+                )
+            }
         }
     }
 
@@ -44,6 +53,13 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
                 MapBuilder.of(
                     "phasedRegistrationNames",
                     MapBuilder.of("bubbled", "onSavePDF")
+                )
+            )
+            .put(
+                "selectionChange",
+                MapBuilder.of(
+                    "phasedRegistrationNames",
+                    MapBuilder.of("bubbled", "onSelectionChange")
                 )
             )
             .build())

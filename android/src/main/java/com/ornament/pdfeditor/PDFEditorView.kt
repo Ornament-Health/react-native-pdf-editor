@@ -323,6 +323,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         centerDocuments()
         prepareDocumentPreviews()
       }
+      emitSelectionChanged()
     } else {
       recalculateDocumentLayout()
     }
@@ -352,6 +353,25 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   fun onSavePDF(action: (paths: List<String>?) -> Unit) {
     onSavePDFAction = action
+  }
+
+  private var onSelectionChangedAction: (count: Int) -> Unit = {}
+
+  fun onSelectionChanged(action: (count: Int) -> Unit) {
+    onSelectionChangedAction = action
+  }
+
+  // Aggregate number of pages that would be written by save() across every
+  // document: each document contributes its page count minus the pages the user
+  // has excluded via the skip-checkbox. A result of 0 means nothing is selected.
+  private fun selectedPageCount(): Int =
+    documents.foldIndexed(0) { index, acc, document ->
+      val excludedCount = excludedPages[index]?.size ?: 0
+      acc + (document.pageCount - excludedCount).coerceAtLeast(0)
+    }
+
+  private fun emitSelectionChanged() {
+    onSelectionChangedAction(selectedPageCount())
   }
 
   fun undo() {
@@ -678,6 +698,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
     excludedPages[activeDocumentIndex] = current
     render()
+    emitSelectionChanged()
   }
 
   private var lastPoint = PointF(0f, 0f)
@@ -899,6 +920,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     releaseDocuments()
     documents.clear()
     excludedPages.clear()
+    emitSelectionChanged()
     lastPageBounds = emptyMap()
     zoomReferencePageBounds = emptyMap()
     activeDocumentIndex = 0

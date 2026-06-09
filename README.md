@@ -33,6 +33,7 @@ const options = {
   style={styles.pdfView}
   options={options}
   onSavePDF={handleSavePDF}
+  onSelectionChange={handleSelectionChange}
 />;
 ```
 
@@ -45,6 +46,18 @@ const handleSavePDF = (urls: string[] | null) => {
   } else {
     console.log('saved urls:', urls);
   }
+};
+```
+
+`onSelectionChange` fires whenever the set of pages that would be saved changes
+(documents loaded/appended, or a page's skip-checkbox toggled). It reports the
+aggregate number of included pages across every document, so a value of `0`
+means the user has excluded every page in every document. Use it to disable a
+Send/Save action before the user can trigger an empty save.
+
+```typescript
+const handleSelectionChange = (selectedCount: number) => {
+  setCanSave(selectedCount > 0);
 };
 ```
 
