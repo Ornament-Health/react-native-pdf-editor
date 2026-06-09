@@ -44,6 +44,11 @@ interface RNComponentProps {
   style: StyleProp<ViewStyle>;
   options: PDFEditorOptions;
   onSavePDF?: (url: string[] | null) => void;
+  // Fires whenever the set of pages that would be saved changes (documents
+  // loaded/appended, or a page's skip-checkbox toggled). `selectedCount` is the
+  // aggregate number of included pages across every document, so a value of 0
+  // means the user has excluded every page in every document.
+  onSelectionChange?: (selectedCount: number) => void;
 }
 
 interface ExtRef {
@@ -54,8 +59,10 @@ interface ExtRef {
   setEditMode(isEdit: boolean): void;
 }
 
-interface RNComponentManagerProps extends Omit<RNComponentProps, 'onSavePDF'> {
+interface RNComponentManagerProps
+  extends Omit<RNComponentProps, 'onSavePDF' | 'onSelectionChange'> {
   onSavePDF(event: SyntheticEvent): void;
+  onSelectionChange(event: SyntheticEvent): void;
 }
 
 const RNComponentViewManager =
@@ -63,7 +70,7 @@ const RNComponentViewManager =
 type PDFEVRef = React.ComponentRef<typeof RNComponentViewManager>;
 
 export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
-  ({ onSavePDF, options, ...props }, extRef) => {
+  ({ onSavePDF, onSelectionChange, options, ...props }, extRef) => {
     const mergedOptions = useMemo(
       () => ({
         ...DEFAULT_OPTIONS,
@@ -158,12 +165,22 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       return Array.isArray(value) ? value : null;
     };
 
+    const getSelectedCount = (nativeEvent: { count?: number }): number => {
+      const value = nativeEvent.count;
+      return typeof value === 'number' ? value : 0;
+    };
+
     return (
       <RNComponentViewManager
         ref={componentRef}
         options={mergedOptions}
         onSavePDF={(event: SyntheticEvent) =>
           onSavePDF?.(getURLs(event.nativeEvent as { url?: string[] | null }))
+        }
+        onSelectionChange={(event: SyntheticEvent) =>
+          onSelectionChange?.(
+            getSelectedCount(event.nativeEvent as { count?: number })
+          )
         }
         {...props}
       />

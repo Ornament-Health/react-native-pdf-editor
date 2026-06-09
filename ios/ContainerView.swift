@@ -27,6 +27,7 @@ class ContainerView: UIView {
 
   @objc var onSavePDF: RCTDirectEventBlock?
   @objc var onError: RCTDirectEventBlock?
+  @objc var onSelectionChange: RCTDirectEventBlock?
 
   // MARK: - Drawing & Documents
   var pdfDrawers: [Int: PDFDrawer] = [:]
@@ -154,6 +155,7 @@ class ContainerView: UIView {
 
     fileSwitcher.configure(with: documents, selectedIndex: currentDocumentIndex)
     renderDocument(at: 0)
+    emitSelectionChange()
   }
 
   private func isAppendOnly(oldPaths: [String], newPaths: [String]) -> Bool {
@@ -174,6 +176,7 @@ class ContainerView: UIView {
     }
     filePaths = newPaths
     fileSwitcher.configure(with: documents, selectedIndex: currentDocumentIndex)
+    emitSelectionChange()
   }
 
   private func loadDocument(_ document: RNPDFDocument, completion: @escaping (PDFDocument?) -> Void)
@@ -279,6 +282,20 @@ class ContainerView: UIView {
     pdfView.updatePageIndicators(excluded: excluded, iconColor: selectionIconColor)
   }
 
+  // Aggregate number of pages that would be written by saveImpl across every
+  // document: each document contributes its page count minus the pages the user
+  // has excluded via the skip-checkbox. A result of 0 means nothing is selected.
+  func selectedPageCount() -> Int {
+    documents.reduce(0) { partial, document in
+      let excludedCount = excludedPages[document.id]?.count ?? 0
+      return partial + max(0, document.pageCount - excludedCount)
+    }
+  }
+
+  func emitSelectionChange() {
+    onSelectionChange?(["count": selectedPageCount()])
+  }
+
   private func togglePageExclusion(pageIndex: Int) {
     guard currentDocumentIndex < documents.count else { return }
     let documentId = documents[currentDocumentIndex].id
@@ -291,6 +308,7 @@ class ContainerView: UIView {
     }
     excludedPages[documentId] = pages
     configurePageIndicators(for: documents[currentDocumentIndex])
+    emitSelectionChange()
   }
 
   func commitAllDrawerHistoriesAsBaseline() {

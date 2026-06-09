@@ -33,6 +33,7 @@ import com.ornament.pdfeditor.utils.XmlParserFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.min
@@ -322,6 +323,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         centerDocuments()
         prepareDocumentPreviews()
       }
+      emitSelectionChanged()
     } else {
       recalculateDocumentLayout()
     }
@@ -351,6 +353,25 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
 
   fun onSavePDF(action: (paths: List<String>?) -> Unit) {
     onSavePDFAction = action
+  }
+
+  private var onSelectionChangedAction: (count: Int) -> Unit = {}
+
+  fun onSelectionChanged(action: (count: Int) -> Unit) {
+    onSelectionChangedAction = action
+  }
+
+  // Aggregate number of pages that would be written by save() across every
+  // document: each document contributes its page count minus the pages the user
+  // has excluded via the skip-checkbox. A result of 0 means nothing is selected.
+  private fun selectedPageCount(): Int =
+    documents.foldIndexed(0) { index, acc, document ->
+      val excludedCount = excludedPages[index]?.size ?: 0
+      acc + (document.pageCount - excludedCount).coerceAtLeast(0)
+    }
+
+  private fun emitSelectionChanged() {
+    onSelectionChangedAction(selectedPageCount())
   }
 
   fun undo() {
@@ -386,7 +407,10 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
         val excluded = excludedPages[index] ?: emptySet()
         saveDocument(document, excluded)?.let { outputs.add(it) }
       }
-      onSavePDFAction(outputs)
+      // Mirror the iOS contract (ContainerView+Save.saveImpl): when nothing was
+      // saved (every document excluded or failed) report null, not an empty
+      // list, so the JS onSavePDF handler sees the documented "failed" value.
+      onSavePDFAction(if (outputs.isEmpty()) null else outputs)
     }
   }
 
@@ -655,16 +679,13 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     invalidate()
   }
 
-  private fun handleSelectionTap(point: PointF): Boolean {
-    val document = documents.getOrNull(activeDocumentIndex) ?: return false
-    val pageIndex = pageSelectionRenderer.handleSelectionTap(
+  private fun selectionPageIndexAt(point: PointF): Int? {
+    val document = documents.getOrNull(activeDocumentIndex) ?: return null
+    return pageSelectionRenderer.handleSelectionTap(
       point = point,
       document = document,
       viewportSize = viewPort,
-    ) ?: return false
-
-    toggleExcludedPage(pageIndex)
-    return true
+    )
   }
 
   private fun toggleExcludedPage(pageIndex: Int) {
@@ -677,6 +698,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     }
     excludedPages[activeDocumentIndex] = current
     render()
+    emitSelectionChanged()
   }
 
   private var lastPoint = PointF(0f, 0f)
@@ -695,6 +717,10 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   private var drawDownPoint = PointF(0f, 0f)
   private var pendingDrawStart = false
   private var suppressDrawUntilNextDown = false
+  // Page icon under the finger on ACTION_DOWN. The include/exclude toggle only
+  // fires on ACTION_UP (press-out) when the gesture stayed within touch slop,
+  // so starting a scroll on top of an icon scrolls instead of toggling.
+  private var pendingSelectionPageIndex: Int? = null
 
   override fun onTouchEvent(event: MotionEvent): Boolean {
     if (documents.isEmpty()) return false
@@ -702,15 +728,14 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
         val p = PointF(event.x, event.y)
-        // The page-include/exclude icon must be tappable in both view and edit
-        // modes. iOS handles this naturally because each icon is a real UIButton;
-        // on Android the icon is baked into the page bitmap, so
-        // PDFEditorView is the only thing that can intercept the tap. If the
-        // touch is outside every icon hitRect, handleSelectionTap returns
-        // false and we fall through to drawing initialization below.
-        if (handleSelectionTap(p)) {
+        // The page include/exclude icon is baked into the page bitmap, so this
+        // view is the only thing that can intercept the tap. Record the icon
+        // under the finger but defer the toggle to ACTION_UP: if the gesture
+        // turns into a scroll/draw (movement beyond touch slop) the toggle is
+        // cancelled so an accidental press at scroll start does nothing.
+        pendingSelectionPageIndex = selectionPageIndexAt(p)
+        if (pendingSelectionPageIndex != null) {
           parent?.requestDisallowInterceptTouchEvent(true)
-          return true
         }
 
         lastPoint = p
@@ -722,6 +747,8 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       }
 
       MotionEvent.ACTION_POINTER_DOWN -> {
+        // A second finger means this was never a single-tap on an icon.
+        pendingSelectionPageIndex = null
         if (editMode) {
           cancelUnfinishedDrawing()
           suppressDrawUntilNextDown = true
@@ -750,6 +777,17 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       MotionEvent.ACTION_MOVE -> {
         if (event.pointerCount == 1) {
           val currentPoint = PointF(event.x, event.y)
+
+          if (pendingSelectionPageIndex != null) {
+            if (distanceBetween(drawDownPoint, currentPoint) <= drawTouchSlopPx) {
+              // Still within slop: keep treating it as a potential icon tap and
+              // don't pan/draw yet, so a tap doesn't nudge the page.
+              lastPoint = currentPoint
+              return true
+            }
+            // Moved past slop: this is a scroll/draw, not an icon tap.
+            pendingSelectionPageIndex = null
+          }
 
           if (editMode) {
             if (!suppressDrawUntilNextDown) {
@@ -805,6 +843,19 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       }
 
       MotionEvent.ACTION_UP -> {
+        // Press-out: a tap that started and stayed on an icon toggles here.
+        val pendingSelection = pendingSelectionPageIndex
+        pendingSelectionPageIndex = null
+        if (pendingSelection != null) {
+          if (isPinching) endPinch()
+          if (editMode) {
+            cancelUnfinishedDrawing()
+            pendingDrawStart = false
+          }
+          toggleExcludedPage(pendingSelection)
+          return true
+        }
+
         if (isPinching) {
           endPinch()
         }
@@ -819,6 +870,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
       }
 
       MotionEvent.ACTION_CANCEL -> {
+        pendingSelectionPageIndex = null
         if (isPinching) {
           endPinch()
         }
@@ -868,6 +920,7 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
     releaseDocuments()
     documents.clear()
     excludedPages.clear()
+    emitSelectionChanged()
     lastPageBounds = emptyMap()
     zoomReferencePageBounds = emptyMap()
     activeDocumentIndex = 0
@@ -903,6 +956,11 @@ class PDFEditorView(context: Context) : ConstraintLayout(context) {
   fun dispose() {
     renderingJob?.cancel()
     renderingJob = null
+    // Cancel the whole scope so an in-flight save() (launched on Dispatchers.IO)
+    // cannot fire onSavePDFAction into a destroyed view, and the scope's Job is
+    // not leaked. dispose() runs from onDropViewInstance — true teardown — so
+    // there are no further render()/save() calls to serve.
+    coroutineScope.cancel()
     binding.viewPort.setImageBitmap(null)
     recycleLayerBitmaps()
     recycleDocumentPreviews()

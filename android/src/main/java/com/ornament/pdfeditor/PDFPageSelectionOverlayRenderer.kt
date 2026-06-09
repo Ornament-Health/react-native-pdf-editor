@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
 import com.ornament.pdfeditor.document.Document
@@ -15,6 +16,35 @@ internal class PDFPageSelectionOverlayRenderer(
   private val pageIconInsetDp: Float,
   private val pageIconEdgePaddingDp: Float,
 ) {
+
+  // Reusable paints/path: renderPageSelection runs on every pan/zoom frame, so
+  // allocating here once avoids per-frame GC churn.
+  private val iconRingStrokePx = dpToPx(2f)
+
+  private val shadePaint = Paint().apply {
+    color = Color.argb(70, 80, 80, 80)
+    style = Paint.Style.FILL
+    isAntiAlias = true
+  }
+  private val accentFillPaint = Paint().apply {
+    style = Paint.Style.FILL
+    isAntiAlias = true
+  }
+  private val ringStrokeWhitePaint = Paint().apply {
+    color = Color.WHITE
+    style = Paint.Style.STROKE
+    strokeWidth = iconRingStrokePx
+    isAntiAlias = true
+  }
+  private val checkPaint = Paint().apply {
+    color = Color.WHITE
+    style = Paint.Style.STROKE
+    strokeWidth = dpToPx(2.5f)
+    strokeCap = Paint.Cap.ROUND
+    strokeJoin = Paint.Join.ROUND
+    isAntiAlias = true
+  }
+  private val checkPath = Path()
 
   fun renderPageSelection(
     bitmap: Bitmap,
@@ -45,24 +75,8 @@ internal class PDFPageSelectionOverlayRenderer(
     val canvas = Canvas(bitmap)
     val excluded = excludedPagesByDocument[activeDocumentIndex] ?: emptySet()
 
-    val shadePaint = Paint().apply {
-      color = Color.argb(70, 80, 80, 80)
-      style = Paint.Style.FILL
-      isAntiAlias = true
-    }
-    val iconPaint = Paint().apply {
-      color = selectionIconColor
-      strokeWidth = dpToPx(2f)
-      style = Paint.Style.STROKE
-      strokeCap = Paint.Cap.ROUND
-      strokeJoin = Paint.Join.ROUND
-      isAntiAlias = true
-    }
-    val iconBgPaint = Paint().apply {
-      color = Color.argb(90, 0, 0, 0)
-      style = Paint.Style.FILL
-      isAntiAlias = true
-    }
+    // The accent fill of the included-page circle follows the configurable color.
+    accentFillPaint.color = selectionIconColor
 
     val viewportRect = RectF(0f, 0f, viewportSize.width.toFloat(), viewportSize.height.toFloat())
 
@@ -76,13 +90,10 @@ internal class PDFPageSelectionOverlayRenderer(
         canvas.drawRect(pageVisibleRect, shadePaint)
       }
 
-      iconPaint.color = if (isExcluded) selectionIconColor else Color.WHITE
       drawSelectionIcon(
         canvas = canvas,
         pageRect = rect,
         visibleRect = pageVisibleRect,
-        iconPaint = iconPaint,
-        iconBgPaint = iconBgPaint,
         isExcluded = isExcluded,
       )
     }
@@ -132,8 +143,6 @@ internal class PDFPageSelectionOverlayRenderer(
     canvas: Canvas,
     pageRect: RectF,
     visibleRect: RectF,
-    iconPaint: Paint,
-    iconBgPaint: Paint,
     isExcluded: Boolean,
   ) {
     val iconRect = clampedIconRect(baseIconRect(pageRect), visibleRect)
@@ -142,30 +151,26 @@ internal class PDFPageSelectionOverlayRenderer(
     val cx = iconRect.centerX()
     val cy = iconRect.centerY()
     val radius = iconRect.width() / 2f
-    val circleRect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
 
-    canvas.drawOval(circleRect, iconBgPaint)
-    canvas.drawOval(circleRect, iconPaint)
-
-    val iconInset = radius * 0.38f
-    val left = circleRect.left + iconInset
-    val top = circleRect.top + iconInset
-    val right = circleRect.right - iconInset
-    val bottom = circleRect.bottom - iconInset
+    val circleRadius = radius - iconRingStrokePx / 2f
 
     if (isExcluded) {
-      canvas.drawLine(left, top, right, bottom, iconPaint)
-      canvas.drawLine(right, top, left, bottom, iconPaint)
+      // Excluded page: empty white ring (unselected radio-style state).
+      canvas.drawCircle(cx, cy, circleRadius, ringStrokeWhitePaint)
     } else {
-      val tickStartX = left + (right - left) * 0.12f
-      val tickStartY = top + (bottom - top) * 0.58f
-      val tickMidX = left + (right - left) * 0.42f
-      val tickMidY = top + (bottom - top) * 0.82f
-      val tickEndX = right - (right - left) * 0.10f
-      val tickEndY = top + (bottom - top) * 0.20f
+      // Included page: accent-filled circle with a white ring and checkmark.
+      canvas.drawCircle(cx, cy, circleRadius, accentFillPaint)
+      canvas.drawCircle(cx, cy, circleRadius, ringStrokeWhitePaint)
 
-      canvas.drawLine(tickStartX, tickStartY, tickMidX, tickMidY, iconPaint)
-      canvas.drawLine(tickMidX, tickMidY, tickEndX, tickEndY, iconPaint)
+      val left = iconRect.left
+      val top = iconRect.top
+      val width = iconRect.width()
+      val height = iconRect.height()
+      checkPath.rewind()
+      checkPath.moveTo(left + width * 0.287f, top + height * 0.507f)
+      checkPath.lineTo(left + width * 0.447f, top + height * 0.66f)
+      checkPath.lineTo(left + width * 0.713f, top + height * 0.353f)
+      canvas.drawPath(checkPath, checkPaint)
     }
   }
 

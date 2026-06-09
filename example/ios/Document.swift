@@ -85,7 +85,8 @@ extension Document {
           )
 
           guard let context = createCGContext(for: scaledImageSize, grayscale: grayscale) else {
-            completion(nil)
+            // Skip this page (leaves outcomingPath[index] == nil); completion is
+            // called exactly once after concurrentPerform finishes.
             return
           }
           context.beginPage(mediaBox: &pdfPageSize)
@@ -99,7 +100,6 @@ extension Document {
           }
           context.endPage()
           guard let cgImage = context.makeImage() else {
-            completion(nil)
             return
           }
 

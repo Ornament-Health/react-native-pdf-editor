@@ -3,7 +3,7 @@
     <dimen name="pdfeditor_preview_panel_height">84dp</dimen>
     <dimen name="pdfeditor_preview_panel_horizontal_padding">16dp</dimen>
     <dimen name="pdfeditor_preview_panel_vertical_padding">8dp</dimen>
-    <dimen name="pdfeditor_preview_item_width">62dp</dimen>
+    <dimen name="pdfeditor_preview_item_width">50dp</dimen>
     <dimen name="pdfeditor_preview_item_height">68dp</dimen>
     <dimen name="pdfeditor_preview_item_spacing">8dp</dimen>
     <dimen name="pdfeditor_preview_sheet_width">50dp</dimen>
