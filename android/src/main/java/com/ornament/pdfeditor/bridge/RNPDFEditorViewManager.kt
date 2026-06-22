@@ -34,7 +34,7 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
                 event.putInt("count", count)
                 reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(
                     id,
-                    "selectionChange",
+                    "pageSelectionChange",
                     event
                 )
             }
@@ -56,10 +56,10 @@ class RNPDFEditorViewManager : SimpleViewManager<PDFEditorView>() {
                 )
             )
             .put(
-                "selectionChange",
+                "pageSelectionChange",
                 MapBuilder.of(
                     "phasedRegistrationNames",
-                    MapBuilder.of("bubbled", "onSelectionChange")
+                    MapBuilder.of("bubbled", "onPageSelectionChange")
                 )
             )
             .build())

@@ -27,7 +27,7 @@ class ContainerView: UIView {
 
   @objc var onSavePDF: RCTDirectEventBlock?
   @objc var onError: RCTDirectEventBlock?
-  @objc var onSelectionChange: RCTDirectEventBlock?
+  @objc var onPageSelectionChange: RCTDirectEventBlock?
 
   // MARK: - Drawing & Documents
   var pdfDrawers: [Int: PDFDrawer] = [:]
@@ -293,7 +293,7 @@ class ContainerView: UIView {
   }
 
   func emitSelectionChange() {
-    onSelectionChange?(["count": selectedPageCount()])
+    onPageSelectionChange?(["count": selectedPageCount()])
   }
 
   private func togglePageExclusion(pageIndex: Int) {
