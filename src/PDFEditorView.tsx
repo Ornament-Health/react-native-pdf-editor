@@ -62,7 +62,7 @@ interface ExtRef {
 interface RNComponentManagerProps
   extends Omit<RNComponentProps, 'onSavePDF' | 'onSelectionChange'> {
   onSavePDF(event: SyntheticEvent): void;
-  onSelectionChange(event: SyntheticEvent): void;
+  onPageSelectionChange(event: SyntheticEvent): void;
 }
 
 const RNComponentViewManager =
@@ -160,7 +160,9 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       }
     };
 
-    const getURLs = (nativeEvent: { url?: string[] | null }): string[] | null => {
+    const getURLs = (nativeEvent: {
+      url?: string[] | null;
+    }): string[] | null => {
       const value = nativeEvent.url;
       return Array.isArray(value) ? value : null;
     };
@@ -177,7 +179,7 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
         onSavePDF={(event: SyntheticEvent) =>
           onSavePDF?.(getURLs(event.nativeEvent as { url?: string[] | null }))
         }
-        onSelectionChange={(event: SyntheticEvent) =>
+        onPageSelectionChange={(event: SyntheticEvent) =>
           onSelectionChange?.(
             getSelectedCount(event.nativeEvent as { count?: number })
           )
