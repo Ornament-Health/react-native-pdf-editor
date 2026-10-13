@@ -5,6 +5,7 @@ protocol DrawingGestureRecognizerDelegate: AnyObject {
   func gestureRecognizerBegan(_ location: CGPoint)
   func gestureRecognizerMoved(_ location: CGPoint)
   func gestureRecognizerEnded(_ location: CGPoint)
+  func gestureRecognizerCancelled()
 }
 
 class NonSelectablePDFView: PDFView {
@@ -139,6 +140,8 @@ class NonSelectablePDFView: PDFView {
       drawingDelegate?.gestureRecognizerMoved(location)
     case .ended:
       drawingDelegate?.gestureRecognizerEnded(location)
+    case .cancelled, .failed:
+      drawingDelegate?.gestureRecognizerCancelled()
     default:
       break
     }
