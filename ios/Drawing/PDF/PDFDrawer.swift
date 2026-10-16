@@ -27,6 +27,7 @@ final class PDFDrawer {
   weak var pdfView: PDFView? {
     didSet {
       if oldValue !== pdfView {
+        strokeLayer?.removeFromSuperlayer()
         cleanupStrokeContext()
         historyDelegate?.pdfDrawer(self, historyDidChange: historyState)
       }
@@ -40,8 +41,15 @@ final class PDFDrawer {
   var width: CGFloat = 5
   var alpha: CGFloat = 0.3
 
+  // The stroke in progress is kept twice: in page space for the ink annotation
+  // added on touch-up, and in PDFView space for the live preview. The preview
+  // is a layer over the PDFView, not an annotation re-added to the page on every
+  // move: PDFKit shows such a re-add as a frame without the annotation followed
+  // by one with it, and on iOS 27 the frame without it is the one that stays on
+  // screen, so the line stayed invisible until touch-up.
   private var drawingPath: UIBezierPath?
-  private var draftAnnotation: DrawingAnnotation?
+  private var previewPath: UIBezierPath?
+  private var strokeLayer: CAShapeLayer?
   private weak var activePage: PDFPage?
 
   private var undoStack: [AnnotationSnapshot] = []
@@ -125,6 +133,9 @@ extension PDFDrawer: DrawingGestureRecognizerDelegate {
     let converted = pdfView.convert(location, to: page)
     drawingPath?.move(to: converted)
 
+    previewPath = UIBezierPath()
+    previewPath?.move(to: location)
+
     if !redoStack.isEmpty {
       redoStack.removeAll()
       notifyHistoryChanged()
@@ -135,21 +146,22 @@ extension PDFDrawer: DrawingGestureRecognizerDelegate {
     guard
       let pdfView = pdfView,
       let page = activePage,
-      let path = drawingPath
+      let path = drawingPath,
+      let preview = previewPath
     else { return }
 
     let converted = pdfView.convert(location, to: page)
     path.addLine(to: converted)
     path.move(to: converted)
 
-    if draftAnnotation == nil {
-      draftAnnotation = makeDraftAnnotation(on: page)
+    if strokeLayer == nil {
+      let layer = makeStrokeLayer(scale: pdfView.scaleFactor)
+      pdfView.layer.addSublayer(layer)
+      strokeLayer = layer
     }
 
-    draftAnnotation?.path = path
-    if let annotation = draftAnnotation {
-      forceRedraw(annotation: annotation, on: page)
-    }
+    preview.addLine(to: location)
+    strokeLayer?.path = preview.cgPath
   }
 
   func gestureRecognizerEnded(_ location: CGPoint) {
@@ -157,7 +169,7 @@ extension PDFDrawer: DrawingGestureRecognizerDelegate {
       let pdfView = pdfView,
       let page = activePage,
       let path = drawingPath,
-      let annotation = draftAnnotation
+      let layer = strokeLayer
     else {
       cleanupStrokeContext()
       return
@@ -167,14 +179,24 @@ extension PDFDrawer: DrawingGestureRecognizerDelegate {
     path.addLine(to: converted)
     path.move(to: converted)
 
-    page.removeAnnotation(annotation)
     let finalAnnotation = makeFinalAnnotation(from: path, on: page)
     page.addAnnotation(finalAnnotation)
+    // PDFKit draws the added annotation a frame or two later. The preview
+    // covers exactly the same pixels, so it stays until then instead of leaving
+    // a blank frame on touch-up.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+      layer.removeFromSuperlayer()
+    }
 
     let snapshot = AnnotationSnapshot(annotation: finalAnnotation, page: page)
     undoStack.append(snapshot)
     cleanupStrokeContext()
     notifyHistoryChanged()
+  }
+
+  func gestureRecognizerCancelled() {
+    strokeLayer?.removeFromSuperlayer()
+    cleanupStrokeContext()
   }
 }
 
@@ -208,19 +230,24 @@ extension PDFDrawer {
 
   fileprivate func cleanupStrokeContext() {
     drawingPath = nil
-    draftAnnotation = nil
+    previewPath = nil
+    strokeLayer = nil
     activePage = nil
   }
 
-  fileprivate func makeDraftAnnotation(on page: PDFPage) -> DrawingAnnotation {
-    let border = PDFBorder()
-    border.lineWidth = width
-
-    let bounds = page.bounds(for: pdfView?.displayBox ?? .cropBox)
-    let annotation = DrawingAnnotation(bounds: bounds, forType: .ink, withProperties: nil)
-    annotation.color = color.withAlphaComponent(alpha)
-    annotation.border = border
-    return annotation
+  // Same geometry as the ink annotation added on touch-up: the page-space width
+  // scaled to the current zoom (the PDFView can't scroll or zoom mid-stroke).
+  // Drawn translucent until touch-up, when the opaque annotation replaces it.
+  fileprivate func makeStrokeLayer(scale: CGFloat) -> CAShapeLayer {
+    let layer = CAShapeLayer()
+    layer.fillColor = nil
+    layer.strokeColor = color.withAlphaComponent(alpha).cgColor
+    layer.lineWidth = width * scale
+    layer.lineCap = .round
+    layer.lineJoin = .round
+    // No implicit animation: the path must follow the finger, not ease towards it.
+    layer.actions = ["path": NSNull()]
+    return layer
   }
 
   fileprivate func makeFinalAnnotation(from path: UIBezierPath, on page: PDFPage) -> PDFAnnotation {
@@ -243,10 +270,5 @@ extension PDFDrawer {
     annotation.border = border
     annotation.add(centeredPath)
     return annotation
-  }
-
-  fileprivate func forceRedraw(annotation: PDFAnnotation, on page: PDFPage) {
-    page.removeAnnotation(annotation)
-    page.addAnnotation(annotation)
   }
 }
