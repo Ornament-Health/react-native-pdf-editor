@@ -40,10 +40,18 @@ export interface PDFEditorOptions {
   };
 }
 
+// A document that produced no file on save, and the step that failed.
+// iOS only; Android always reports an empty list.
+export interface PDFSaveFailure {
+  id: number;
+  type: 'pdf' | 'image';
+  step: 'load' | 'render' | 'serialize' | 'parse' | 'write';
+}
+
 interface RNComponentProps {
   style: StyleProp<ViewStyle>;
   options: PDFEditorOptions;
-  onSavePDF?: (url: string[] | null) => void;
+  onSavePDF?: (url: string[] | null, failures: PDFSaveFailure[]) => void;
   // Fires whenever the set of pages that would be saved changes (documents
   // loaded/appended, or a page's skip-checkbox toggled). `selectedCount` is the
   // aggregate number of included pages across every document, so a value of 0
@@ -167,6 +175,13 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       return Array.isArray(value) ? value : null;
     };
 
+    const getFailures = (nativeEvent: {
+      failures?: PDFSaveFailure[];
+    }): PDFSaveFailure[] => {
+      const value = nativeEvent.failures;
+      return Array.isArray(value) ? value : [];
+    };
+
     const getSelectedCount = (nativeEvent: { count?: number }): number => {
       const value = nativeEvent.count;
       return typeof value === 'number' ? value : 0;
@@ -176,9 +191,13 @@ export const PDFEditorView = forwardRef<ExtRef, RNComponentProps>(
       <RNComponentViewManager
         ref={componentRef}
         options={mergedOptions}
-        onSavePDF={(event: SyntheticEvent) =>
-          onSavePDF?.(getURLs(event.nativeEvent as { url?: string[] | null }))
-        }
+        onSavePDF={(event: SyntheticEvent) => {
+          const nativeEvent = event.nativeEvent as {
+            url?: string[] | null;
+            failures?: PDFSaveFailure[];
+          };
+          onSavePDF?.(getURLs(nativeEvent), getFailures(nativeEvent));
+        }}
         onPageSelectionChange={(event: SyntheticEvent) =>
           onSelectionChange?.(
             getSelectedCount(event.nativeEvent as { count?: number })
