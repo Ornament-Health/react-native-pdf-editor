@@ -39,10 +39,12 @@ const options = {
 
 `onSavePDF` receives a list of saved file paths or `null` if native saving failed. Saved files stay in Documents/External Files; clean up unused copies on the RN side.
 
+The second argument lists the documents that produced no file and the step that failed (`load`, `render`, `serialize`, `parse` or `write`). Only iOS fills it; on Android it is always empty. On iOS the saved file is named `<incoming name>_<save time>_<document id>`; the incoming name is percent-decoded and cut so that the name fits the file system limit.
+
 ```typescript
-const handleSavePDF = (urls: string[] | null) => {
+const handleSavePDF = (urls: string[] | null, failures: PDFSaveFailure[]) => {
   if (urls === null) {
-    console.log('save failed');
+    console.log('save failed', failures);
   } else {
     console.log('saved urls:', urls);
   }
